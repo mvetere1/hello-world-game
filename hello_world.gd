@@ -18,5 +18,12 @@ func _on_pressed() -> void:
 
 func _on_button_2_pressed() -> void:
 	$Label2.text = "Hello, button2"
-	$Label3.text = "Hello, button3"
+	pass # Replace with function body.
+
+
+func _on_button_2_toggled(toggled_on: bool) -> void:
+	if (toggled_on):
+		$Label2.text = "toggle worked"
+	else:
+		$Label2.text = "toggle workedELSE"
 	pass # Replace with function body.
