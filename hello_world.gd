@@ -20,3 +20,17 @@ func _on_button_2_pressed() -> void:
 	$Label2.text = "Hello, button2"
 	$Label3.text = "Hello, button3"
 	pass # Replace with function body.
+
+func _on_button_tommy_toggled(toggled_on: bool) -> void:
+	if toggled_on == true:
+		$label_Tommy.text = "the toggle is true"
+	else:
+		$label_Tommy.text = "the toggle is false"
+	pass # Replace with function body.
+
+
+func _on_button_3_toggled(toggled_on: bool) -> void:
+	if toggled_on:
+		$Label4.text = "the toggle is true"
+	else:
+		$Label4.text = "the toggle is false"
