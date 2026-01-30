@@ -12,7 +12,7 @@ config_version=5
 
 config/name="HelloWorldGame"
 run/main_scene="uid://d3e5foqfot6ut"
-config/features=PackedStringArray("4.6", "GL Compatibility")
+config/features=PackedStringArray("4.5", "GL Compatibility")
 config/icon="res://icon.svg"
 
 [physics]

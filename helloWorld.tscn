@@ -1,8 +1,8 @@
-[gd_scene format=3 uid="uid://d3e5foqfot6ut"]
+[gd_scene load_steps=2 format=3 uid="uid://d3e5foqfot6ut"]
 
 [ext_resource type="Script" uid="uid://bepswhgudgku5" path="res://hello_world.gd" id="1_wjrpa"]
 
-[node name="Control" type="Control" unique_id=635185595]
+[node name="Control" type="Control"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -11,7 +11,7 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_wjrpa")
 
-[node name="Label" type="Label" parent="." unique_id=2064879966]
+[node name="Label" type="Label" parent="."]
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
@@ -27,7 +27,7 @@ grow_vertical = 2
 text = "hello test
 "
 
-[node name="Button" type="Button" parent="." unique_id=850196611]
+[node name="Button" type="Button" parent="."]
 layout_mode = 1
 anchors_preset = -1
 anchor_left = 0.43229166
@@ -39,7 +39,7 @@ offset_bottom = 8.0
 text = "click me v2"
 metadata/_edit_use_anchors_ = true
 
-[node name="Label2" type="Label" parent="." unique_id=1417302211]
+[node name="Label2" type="Label" parent="."]
 layout_mode = 1
 anchors_preset = 5
 anchor_left = 0.5
@@ -49,9 +49,10 @@ offset_top = 231.0
 offset_right = -177.0
 offset_bottom = 254.0
 grow_horizontal = 2
-text = "test label 2"
+text = "tommy edited this
+"
 
-[node name="Button2" type="Button" parent="." unique_id=2062159403]
+[node name="Button2" type="Button" parent="."]
 layout_mode = 0
 offset_left = 315.0
 offset_top = 331.0
@@ -59,7 +60,7 @@ offset_right = 423.0
 offset_bottom = 362.0
 text = "button Dual"
 
-[node name="Label3" type="Label" parent="." unique_id=837525414]
+[node name="Label3" type="Label" parent="."]
 layout_mode = 0
 offset_left = 423.0
 offset_top = 168.0
