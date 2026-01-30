@@ -1,0 +1,71 @@
+[gd_scene format=3 uid="uid://d3e5foqfot6ut"]
+
+[ext_resource type="Script" uid="uid://bepswhgudgku5" path="res://hello_world.gd" id="1_wjrpa"]
+
+[node name="Control" type="Control" unique_id=635185595]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_wjrpa")
+
+[node name="Label" type="Label" parent="." unique_id=2064879966]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -75.0
+offset_top = -71.0
+offset_right = -3.0
+offset_bottom = -22.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "hello test
+"
+
+[node name="Button" type="Button" parent="." unique_id=850196611]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.43229166
+anchor_top = 0.5154321
+anchor_right = 0.48697916
+anchor_bottom = 0.5509259
+offset_right = 8.0
+offset_bottom = 8.0
+text = "click me"
+metadata/_edit_use_anchors_ = true
+
+[node name="Label2" type="Label" parent="." unique_id=1417302211]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -262.0
+offset_top = 231.0
+offset_right = -177.0
+offset_bottom = 254.0
+grow_horizontal = 2
+text = "test label 2"
+
+[node name="Button2" type="Button" parent="." unique_id=2062159403]
+layout_mode = 0
+offset_left = 315.0
+offset_top = 331.0
+offset_right = 423.0
+offset_bottom = 362.0
+text = "button Dual"
+
+[node name="Label3" type="Label" parent="." unique_id=837525414]
+layout_mode = 0
+offset_left = 423.0
+offset_top = 168.0
+offset_right = 463.0
+offset_bottom = 191.0
+text = "label 3"
+
+[connection signal="pressed" from="Button" to="." method="_on_pressed"]
+[connection signal="pressed" from="Button2" to="." method="_on_button_2_pressed"]
