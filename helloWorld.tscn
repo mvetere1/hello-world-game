@@ -36,7 +36,7 @@ anchor_right = 0.48697916
 anchor_bottom = 0.5509259
 offset_right = 8.0
 offset_bottom = 8.0
-text = "click me"
+text = "click me v2"
 metadata/_edit_use_anchors_ = true
 
 [node name="Label2" type="Label" parent="." unique_id=1417302211]
