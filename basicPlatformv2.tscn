@@ -1,4 +1,4 @@
-[gd_scene load_steps=6 format=3 uid="uid://dyusg12g77ika"]
+[gd_scene format=4 uid="uid://dyusg12g77ika"]
 
 [ext_resource type="Texture2D" uid="uid://dbdov0ynt1atu" path="res://icon.svg" id="1_3ygas"]
 [ext_resource type="Script" uid="uid://b23yf5yk6b04d" path="res://character_body_2d.gd" id="2_opb7h"]
@@ -6,89 +6,192 @@
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_4orea"]
 size = Vector2(135.43283, 101)
 
+[sub_resource type="PortableCompressedTexture2D" id="PortableCompressedTexture2D_3ygas"]
+_data = PackedByteArray("AAADAAUAAAABAAAAMAAAADAAAACCAQAAUklGRnoBAABXRUJQVlA4TG0BAAAvL8ALEIegKJKk5iKZZ7SBCWziBAvwQ5qiSJKaq/tFwAFPZOADRSjOSWkkSdGd+o/foQmDKMi/Ck0IqPmP/aFbS0d21vPZ3IxGHFJQXgnVY/4rQ+AGFn0Fppe2XgrAkiSrDYMAPWPCs/f+t1VaVuE/ov+O3DZyJE/avXGDPoFnDitWuENc7pa5Q3H7f8+5c4fk9r/t7twhuX07uEP6HEBKIK6U3BU3QozhVkfYF7hjnDeoAwNxwSVjhLhMuMjR2t2OWhljxvH0WmMM2QEzxphyfO7g3YmO3IvWXe4/uVxP7c53xnVms90pGbne3XbYtQspsR82JXDHC7obbBHcMd+Vx93h3PFodxWVqGqrdFUcjN4q7QqNZbOqbwy0K+74end7VoV3Jrn2bqzQziZctBvnnXEX7abwzhQXLCUY70xxudqR/1JH5NNdiKQa98ggiAvi7V35zaOhVN5RpQ6wtVZNvNFSDGpHelbr+lQyAAA=")
+size_override = Vector2(48, 48)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_opb7h"]
+atlas = SubResource("PortableCompressedTexture2D_3ygas")
+region = Rect2(0, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_4orea"]
+atlas = SubResource("PortableCompressedTexture2D_3ygas")
+region = Rect2(16, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_ax738"]
+atlas = SubResource("PortableCompressedTexture2D_3ygas")
+region = Rect2(32, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_bgckg"]
+atlas = SubResource("PortableCompressedTexture2D_3ygas")
+region = Rect2(0, 16, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_wadyj"]
+atlas = SubResource("PortableCompressedTexture2D_3ygas")
+region = Rect2(16, 16, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_4yabm"]
+atlas = SubResource("PortableCompressedTexture2D_3ygas")
+region = Rect2(32, 16, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_q1yut"]
+atlas = SubResource("PortableCompressedTexture2D_3ygas")
+region = Rect2(0, 32, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_ta41a"]
+atlas = SubResource("PortableCompressedTexture2D_3ygas")
+region = Rect2(16, 32, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_rkwlb"]
+atlas = SubResource("PortableCompressedTexture2D_3ygas")
+region = Rect2(32, 32, 16, 16)
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_uuetg"]
+animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_opb7h")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_4orea")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_ax738")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_bgckg")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_wadyj")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_4yabm")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_q1yut")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_ta41a")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_rkwlb")
+}],
+"loop": true,
+"name": &"Loop",
+"speed": 10.0
+}]
+
 [sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_3ygas"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_3ygas"]
 size = Vector2(26.205032, 12.719971)
 
-[node name="Node2D" type="Node2D"]
+[node name="Node2D" type="Node2D" unique_id=408343944]
 position = Vector2(267, 553)
 scale = Vector2(2.006388, 1.2597501)
 
-[node name="StaticBody2D" type="StaticBody2D" parent="."]
+[node name="StaticBody2D" type="StaticBody2D" parent="." unique_id=627833290]
 scale = Vector2(0.87367404, 0.31242642)
 
-[node name="Sprite2D" type="Sprite2D" parent="StaticBody2D"]
+[node name="Sprite2D" type="Sprite2D" parent="StaticBody2D" unique_id=2001328411]
 scale = Vector2(0.98060155, 1.2207819)
 texture = ExtResource("1_3ygas")
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="StaticBody2D"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="StaticBody2D" unique_id=532400724]
 position = Vector2(-0.081344604, 2.5)
 scale = Vector2(0.84742266, 1.475481)
 shape = SubResource("RectangleShape2D_4orea")
 
-[node name="StaticBody2D4" type="StaticBody2D" parent="."]
+[node name="StaticBody2D4" type="StaticBody2D" parent="." unique_id=472931591]
 position = Vector2(147.03038, 108.75172)
 scale = Vector2(5.043476, 0.44019255)
 
-[node name="Sprite2D" type="Sprite2D" parent="StaticBody2D4"]
+[node name="Sprite2D" type="Sprite2D" parent="StaticBody2D4" unique_id=2096896343]
 scale = Vector2(0.98060155, 1.2207819)
 texture = ExtResource("1_3ygas")
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="StaticBody2D4"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="StaticBody2D4" unique_id=1683199738]
 position = Vector2(-0.081344604, 2.5)
 scale = Vector2(0.84742266, 1.475481)
 shape = SubResource("RectangleShape2D_4orea")
 
-[node name="StaticBody2D2" type="StaticBody2D" parent="."]
+[node name="StaticBody2D2" type="StaticBody2D" parent="." unique_id=1267876874]
 position = Vector2(107.656166, -23.020435)
 scale = Vector2(0.4344945, 1)
 
-[node name="Sprite2D" type="Sprite2D" parent="StaticBody2D2"]
+[node name="Sprite2D" type="Sprite2D" parent="StaticBody2D2" unique_id=1392014235]
 scale = Vector2(0.98060155, 1.2207819)
 texture = ExtResource("1_3ygas")
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="StaticBody2D2"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="StaticBody2D2" unique_id=1846450977]
 position = Vector2(2.0341802, 3.1752143)
 scale = Vector2(0.84742266, 1.475481)
 shape = SubResource("RectangleShape2D_4orea")
 
-[node name="StaticBody2D3" type="StaticBody2D" parent="."]
+[node name="StaticBody2D3" type="StaticBody2D" parent="." unique_id=813094916]
 position = Vector2(218.30275, -26.19567)
 scale = Vector2(0.4344945, 1)
 
-[node name="Sprite2D" type="Sprite2D" parent="StaticBody2D3"]
+[node name="Sprite2D" type="Sprite2D" parent="StaticBody2D3" unique_id=1372143826]
 scale = Vector2(0.98060155, 1.2207819)
 texture = ExtResource("1_3ygas")
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="StaticBody2D3"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="StaticBody2D3" unique_id=274268477]
 position = Vector2(2.0341802, 3.1752143)
 scale = Vector2(0.84742266, 1.475481)
 shape = SubResource("RectangleShape2D_4orea")
 
-[node name="CollisionShape2D" type="StaticBody2D" parent="."]
+[node name="CollisionShape2D" type="StaticBody2D" parent="." unique_id=2078777991]
 position = Vector2(353.86975, -175.43163)
 scale = Vector2(-1.2891657, 0.62761533)
 
-[node name="CollisionShape2D2" type="Sprite2D" parent="CollisionShape2D"]
+[node name="CollisionShape2D2" type="Sprite2D" parent="CollisionShape2D" unique_id=1197891742]
 scale = Vector2(0.98060155, 1.2207819)
 texture = ExtResource("1_3ygas")
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="CollisionShape2D"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="CollisionShape2D" unique_id=38830530]
 position = Vector2(1.0171027, 10.319494)
 scale = Vector2(0.84742266, 1.475481)
 shape = SubResource("RectangleShape2D_4orea")
 
-[node name="CharacterBody2D" type="CharacterBody2D" parent="."]
+[node name="CharacterBody2D" type="CharacterBody2D" parent="." unique_id=481256103]
 scale = Vector2(0.5927159, 0.94796795)
 script = ExtResource("2_opb7h")
 
-[node name="Sprite2D" type="Sprite2D" parent="CharacterBody2D"]
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="CharacterBody2D" unique_id=1103034191]
+texture_filter = 1
+position = Vector2(-19.340439, -142.35437)
+scale = Vector2(4.31073, 4.940325)
+sprite_frames = SubResource("SpriteFrames_uuetg")
+animation = &"Loop"
+frame_progress = 0.333769
+metadata/_aseprite_wizard_interface_config_ = {
+"animation_section": false,
+"layer_section": false,
+"pending_changes": {},
+"slice_section": false
+}
+metadata/_aseprite_wizard_config_ = {
+"embed_tex": true,
+"layers": [],
+"o_ex_p": "",
+"o_folder": "",
+"o_name": "",
+"only_visible": false,
+"scale": "1.0",
+"should_round_fps": true,
+"slice": "",
+"source": "res://assets/art/animated 2d/running goon sprite sheet.aseprite",
+"source_uid": 2276360984521932163
+}
+metadata/_aseprite_wizard_source_file_hash_ = "e427e089e547385bd982dad156d4a233"
+
+[node name="Sprite2D" type="Sprite2D" parent="CharacterBody2D" unique_id=302933519]
 position = Vector2(-22.469162, -103.234055)
 scale = Vector2(21.393456, 12.196205)
 texture = SubResource("PlaceholderTexture2D_3ygas")
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="CharacterBody2D"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="CharacterBody2D" unique_id=857488691]
 position = Vector2(-23.544876, -103.83496)
 scale = Vector2(0.9999999, 1)
 shape = SubResource("RectangleShape2D_3ygas")
