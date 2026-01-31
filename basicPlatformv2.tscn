@@ -164,7 +164,7 @@ position = Vector2(-19.340439, -142.35437)
 scale = Vector2(4.31073, 4.940325)
 sprite_frames = SubResource("SpriteFrames_uuetg")
 animation = &"Loop"
-frame_progress = 0.333769
+frame_progress = 0.5934372
 metadata/_aseprite_wizard_interface_config_ = {
 "animation_section": false,
 "layer_section": false,
@@ -195,3 +195,6 @@ texture = SubResource("PlaceholderTexture2D_3ygas")
 position = Vector2(-23.544876, -103.83496)
 scale = Vector2(0.9999999, 1)
 shape = SubResource("RectangleShape2D_3ygas")
+
+[node name="TileMap" type="TileMap" parent="." unique_id=1994582346]
+format = 2
