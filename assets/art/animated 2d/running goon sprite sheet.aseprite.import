@@ -3,12 +3,11 @@
 importer="aseprite_wizard.plugin.spriteframes"
 type="SpriteFrames"
 uid="uid://7oxlk0y286pr"
-path="res://.godot/imported/running goon sprite sheet.aseprite-9036e55196b278577f006d66110602d9.res"
+valid=false
 
 [deps]
 
 source_file="res://assets/art/animated 2d/running goon sprite sheet.aseprite"
-dest_files=["res://.godot/imported/running goon sprite sheet.aseprite-9036e55196b278577f006d66110602d9.res"]
 
 [params]
 
