@@ -1,6 +1,6 @@
 [gd_scene load_steps=0 format=3 uid="uid://shvcma32tpd4"]
 
-[ext_resource type="Script" uid="uid://bg1ax0ootcrre" path="res://node_2d.gd" id="1_wtcfe"]
+[ext_resource type="Script" uid="uid://bg1ax0ootcrre" path="res://basicplatformercs2/node_2d.gd" id="1_wtcfe"]
 
 [node name="Node2D" type="Node2D" unique_id=1722507240]
 position = Vector2(546, 310)

@@ -1,6 +1,6 @@
-[gd_scene format=3 uid="uid://d3e5foqfot6ut"]
+[gd_scene load_steps=0 format=3 uid="uid://d3e5foqfot6ut"]
 
-[ext_resource type="Script" uid="uid://bepswhgudgku5" path="res://hello_world.gd" id="1_wjrpa"]
+[ext_resource type="Script" uid="uid://bepswhgudgku5" path="res://basicplatformercs2/hello_world.gd" id="1_wjrpa"]
 
 [node name="Control" type="Control" unique_id=2068427026]
 layout_mode = 3

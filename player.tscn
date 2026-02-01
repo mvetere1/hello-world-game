@@ -1,7 +1,7 @@
-[gd_scene format=3 uid="uid://b8v4h3j5k7p1"]
+[gd_scene load_steps=0 format=3 uid="uid://b8v4h3j5k7p1"]
 
-[ext_resource type="Script" uid="uid://c8d2f9g3h5j7" path="res://player.gd" id="1"]
-[ext_resource type="Texture2D" uid="uid://dbdov0ynt1atu" path="res://icon.svg" id="2"]
+[ext_resource type="Script" uid="uid://c8d2gag3h5j7" path="res://player.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://dbdov0ynt1atu" path="res://basicplatformercs2/icon.svg" id="2"]
 
 [node name="Player" type="Node2D"]
 script = ExtResource("1")
