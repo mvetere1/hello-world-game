@@ -4,6 +4,7 @@
 [ext_resource type="Texture2D" uid="uid://bmp5aq5afqpjn" path="res://assets/SolariaSelectAssets/Solaria Demo Tiles.png" id="2_h1wif"]
 [ext_resource type="Texture2D" uid="uid://c7i6terjutn8g" path="res://assets/art/static 2d/old medallion assets/seb tiles and stuff.png" id="3_bxyrb"]
 [ext_resource type="Script" uid="uid://b23yf5yk6b04d" path="res://basicplatformercs2/character_body_2d.gd" id="3_yl157"]
+[ext_resource type="Texture2D" uid="uid://bykqa6jdt7ioc" path="res://assets/SolariaSelectAssets/!Flame.png" id="5_qpokr"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_4orea"]
 texture = ExtResource("2_h1wif")
@@ -508,7 +509,7 @@ texture = ExtResource("2_h1wif")
 18:0/0 = 0
 19:0/0 = 0
 20:0/0 = 0
-20:0/0/physics_layer_0/polygon_0/points = PackedVector2Array(-8, -8, 8, -8, 8, 7.122404, -8, 8)
+20:0/0/physics_layer_0/polygon_0/points = PackedVector2Array(-8, -8, 8, -8, 5.7374935, 4.1547356, -5.143959, 2.6709023)
 21:0/0 = 0
 22:0/0 = 0
 22:0/0/physics_layer_0/polygon_0/points = PackedVector2Array(-8, -8, 3.4622803, -8, 8, -8, 8, 8, -8, 8)
@@ -1183,7 +1184,36 @@ animations = [{
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_3ygas"]
 size = Vector2(26.205032, 16.408539)
 
-[node name="Node2D" type="Node2D" unique_id=1219767825]
+[sub_resource type="AtlasTexture" id="AtlasTexture_qpokr"]
+atlas = ExtResource("5_qpokr")
+region = Rect2(0, 0, 48, 48)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_hbaif"]
+atlas = ExtResource("5_qpokr")
+region = Rect2(48, 0, 48, 48)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_fl656"]
+atlas = ExtResource("5_qpokr")
+region = Rect2(96, 0, 48, 48)
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_o2dtp"]
+animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_qpokr")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_hbaif")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_fl656")
+}],
+"loop": true,
+"name": &"flame",
+"speed": 5.0
+}]
+
+[node name="Node2D2" type="Node2D" unique_id=1219767825]
 position = Vector2(267, 553)
 scale = Vector2(2.006388, 1.2597501)
 
@@ -1245,3 +1275,28 @@ texture = SubResource("PlaceholderTexture2D_3ygas")
 position = Vector2(-237.13062, 48.567978)
 scale = Vector2(0.99999994, 1)
 shape = SubResource("RectangleShape2D_3ygas")
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="." unique_id=1950285447]
+position = Vector2(-85.22778, 46.83469)
+sprite_frames = SubResource("SpriteFrames_o2dtp")
+animation = &"flame"
+autoplay = "flame"
+metadata/_aseprite_wizard_interface_config_ = {
+"animation_section": true,
+"layer_section": true,
+"output_section": true,
+"pending_changes": {
+"embed_tex": true,
+"layers": [],
+"o_ex_p": "",
+"o_folder": "",
+"o_name": "",
+"only_visible": false,
+"scale": "1.0",
+"should_round_fps": true,
+"slice": "",
+"source": "",
+"source_uid": -1
+},
+"slice_section": true
+}
