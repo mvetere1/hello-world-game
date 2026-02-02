@@ -3,7 +3,7 @@
 [ext_resource type="Texture2D" uid="uid://vwakoyq0nw3j" path="res://assets/SolariaSelectAssets/Solaria Palette.png" id="2_bxyrb"]
 [ext_resource type="Texture2D" uid="uid://bmp5aq5afqpjn" path="res://assets/SolariaSelectAssets/Solaria Demo Tiles.png" id="2_h1wif"]
 [ext_resource type="Texture2D" uid="uid://c7i6terjutn8g" path="res://assets/art/static 2d/old medallion assets/seb tiles and stuff.png" id="3_bxyrb"]
-[ext_resource type="Script" uid="uid://b23yf5yk6b04d" path="res://basicplatformercs2/character_body_2d.gd" id="3_yl157"]
+[ext_resource type="Script" uid="uid://dy3ahd5yyc7m8" path="res://DiamondsOddities/galleryTraveler.gd" id="4_fl656"]
 [ext_resource type="Texture2D" uid="uid://bykqa6jdt7ioc" path="res://assets/SolariaSelectAssets/!Flame.png" id="5_qpokr"]
 [ext_resource type="Texture2D" uid="uid://dqubegj6sojvl" path="res://assets/SolariaSelectAssets/!Chest.png" id="6_hbaif"]
 [ext_resource type="Texture2D" uid="uid://cmjwo2rg2emj0" path="res://assets/SolariaSelectAssets/Hero 01.png" id="7_fl656"]
@@ -1370,7 +1370,7 @@ tile_set = SubResource("TileSet_4orea")
 
 [node name="CharacterBody2D" type="CharacterBody2D" parent="." unique_id=322910612]
 scale = Vector2(0.5927159, 0.94796795)
-script = ExtResource("3_yl157")
+script = ExtResource("4_fl656")
 
 [node name="Camera2D" type="Camera2D" parent="CharacterBody2D" unique_id=16272149]
 scale = Vector2(1.687149, 1.054888)
