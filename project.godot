@@ -15,7 +15,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 [application]
 
 config/name="HelloWorldGame"
-run/main_scene="uid://bpn2hh1udqco5"
+run/main_scene="uid://dlp1luhm5x5o8"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
 
