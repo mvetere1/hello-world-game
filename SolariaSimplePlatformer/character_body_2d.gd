@@ -1,5 +1,5 @@
 extends CharacterBody2D
-
+#### THIS IS NOT BEING USED, ONE IN basicplatformmercs2 is
 
 const SPEED = 300.0
 const JUMP_VELOCITY = -400.0

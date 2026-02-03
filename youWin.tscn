@@ -1,0 +1,11 @@
+[gd_scene format=3 uid="uid://co6rtwl5ppbm3"]
+
+[node name="YouWin" type="Node2D" unique_id=1760723270]
+
+[node name="Label" type="Label" parent="." unique_id=1151708279]
+offset_left = 436.0
+offset_top = 274.0
+offset_right = 567.0
+offset_bottom = 297.0
+scale = Vector2(2.7015364, 2.9199986)
+text = "Gert you win!1!!1"

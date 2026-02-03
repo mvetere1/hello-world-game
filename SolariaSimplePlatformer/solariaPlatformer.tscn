@@ -7,6 +7,7 @@
 [ext_resource type="Texture2D" uid="uid://bykqa6jdt7ioc" path="res://assets/SolariaSelectAssets/!Flame.png" id="5_qpokr"]
 [ext_resource type="Texture2D" uid="uid://dqubegj6sojvl" path="res://assets/SolariaSelectAssets/!Chest.png" id="6_hbaif"]
 [ext_resource type="Texture2D" uid="uid://cmjwo2rg2emj0" path="res://assets/SolariaSelectAssets/Hero 01.png" id="7_fl656"]
+[ext_resource type="Script" uid="uid://o6h3s7rnv7o2" path="res://SolariaSimplePlatformer/WinChest.gd" id="8_u4d3h"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_4orea"]
 texture = ExtResource("2_h1wif")
@@ -1184,7 +1185,7 @@ animations = [{
 [sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_3ygas"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_3ygas"]
-size = Vector2(26.205032, 16.408539)
+size = Vector2(26.205032, 58.447)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_qpokr"]
 atlas = ExtResource("5_qpokr")
@@ -1353,6 +1354,9 @@ animations = [{
 "speed": 3.0
 }]
 
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_u4d3h"]
+size = Vector2(42.894936, 54.77278)
+
 [node name="Node2D2" type="Node2D" unique_id=1219767825]
 position = Vector2(267, 553)
 scale = Vector2(2.006388, 1.2597501)
@@ -1412,7 +1416,7 @@ scale = Vector2(21.393456, 12.196205)
 texture = SubResource("PlaceholderTexture2D_3ygas")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="CharacterBody2D" unique_id=857488691]
-position = Vector2(-237.13062, 48.567978)
+position = Vector2(-237.13062, 27.548767)
 scale = Vector2(0.99999994, 1)
 shape = SubResource("RectangleShape2D_3ygas")
 
@@ -1454,3 +1458,15 @@ animation = &"guy"
 autoplay = "guy"
 frame = 4
 frame_progress = 0.7094619
+
+[node name="Area2D" type="Area2D" parent="." unique_id=712120061]
+position = Vector2(813.90045, -270.6886)
+script = ExtResource("8_u4d3h")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D" unique_id=1603756573]
+position = Vector2(4.7683716e-06, -0.7937956)
+scale = Vector2(1, 1.0000001)
+shape = SubResource("RectangleShape2D_u4d3h")
+
+[connection signal="area_entered" from="Area2D" to="Area2D" method="_on_area_entered"]
+[connection signal="body_entered" from="Area2D" to="Area2D" method="_on_body_entered"]
