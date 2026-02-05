@@ -8,6 +8,8 @@
 [ext_resource type="Texture2D" uid="uid://dqubegj6sojvl" path="res://assets/SolariaSelectAssets/!Chest.png" id="6_hbaif"]
 [ext_resource type="Texture2D" uid="uid://cmjwo2rg2emj0" path="res://assets/SolariaSelectAssets/Hero 01.png" id="7_fl656"]
 [ext_resource type="Script" uid="uid://o6h3s7rnv7o2" path="res://SolariaSimplePlatformer/WinChest.gd" id="8_u4d3h"]
+[ext_resource type="Script" uid="uid://78ylxyt886xd" path="res://SolariaSimplePlatformer/enemyArea.gd" id="9_o2dtp"]
+[ext_resource type="Texture2D" uid="uid://ds2numxltwn36" path="res://assets/SolariaSelectAssets/elk.png" id="10_l6ydm"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_4orea"]
 texture = ExtResource("2_h1wif")
@@ -1182,10 +1184,11 @@ animations = [{
 "speed": 10.0
 }]
 
-[sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_3ygas"]
-
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_3ygas"]
-size = Vector2(26.205032, 58.447)
+size = Vector2(26.205032, 46.05581)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_l6ydm"]
+size = Vector2(26.41566, 30.16476)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_qpokr"]
 atlas = ExtResource("5_qpokr")
@@ -1355,7 +1358,10 @@ animations = [{
 }]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_u4d3h"]
-size = Vector2(42.894936, 54.77278)
+size = Vector2(25.434711, 27.386406)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_mon3b"]
+size = Vector2(64.79306, 126.61241)
 
 [node name="Node2D2" type="Node2D" unique_id=1219767825]
 position = Vector2(267, 553)
@@ -1373,10 +1379,12 @@ tile_map_data = PackedByteArray("AAD3/wMAAAATAAMAAAAMANj/AAAWAAAAAAANANj/AAAXAAA
 tile_set = SubResource("TileSet_4orea")
 
 [node name="CharacterBody2D" type="CharacterBody2D" parent="." unique_id=322910612]
-scale = Vector2(0.5927159, 0.94796795)
+position = Vector2(-138.05905, 11.907139)
 script = ExtResource("3_yl157")
 
 [node name="Camera2D" type="Camera2D" parent="CharacterBody2D" unique_id=16272149]
+position = Vector2(16.817772, -30.14563)
+rotation = 2.3561945
 scale = Vector2(1.687149, 1.054888)
 drag_vertical_enabled = true
 drag_horizontal_offset = 0.22
@@ -1384,7 +1392,7 @@ drag_vertical_offset = -1.0
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="CharacterBody2D" unique_id=1103034191]
 texture_filter = 1
-position = Vector2(-237.13058, 10.885925)
+position = Vector2(-1.5258789e-05, 0.79379463)
 scale = Vector2(4.31073, 4.940325)
 sprite_frames = SubResource("SpriteFrames_uuetg")
 animation = &"Loop"
@@ -1410,18 +1418,23 @@ metadata/_aseprite_wizard_config_ = {
 }
 metadata/_aseprite_wizard_source_file_hash_ = "e427e089e547385bd982dad156d4a233"
 
-[node name="Sprite2D" type="Sprite2D" parent="CharacterBody2D" unique_id=302933519]
-position = Vector2(-238.81238, 47.73059)
-scale = Vector2(21.393456, 12.196205)
-texture = SubResource("PlaceholderTexture2D_3ygas")
-
 [node name="CollisionShape2D" type="CollisionShape2D" parent="CharacterBody2D" unique_id=857488691]
-position = Vector2(-237.13062, 27.548767)
+position = Vector2(-0.49839783, 0.7938175)
 scale = Vector2(0.99999994, 1)
 shape = SubResource("RectangleShape2D_3ygas")
 
-[node name="flame" type="AnimatedSprite2D" parent="." unique_id=1950285447]
-position = Vector2(-85.22778, 46.83469)
+[node name="Area2D2-fire" type="Area2D" parent="." unique_id=436450821]
+position = Vector2(-4.9840775, -38.10279)
+script = ExtResource("9_o2dtp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D2-fire" unique_id=1042090884]
+position = Vector2(-0.74759674, 3.175232)
+scale = Vector2(1, 1.0000001)
+shape = SubResource("RectangleShape2D_l6ydm")
+
+[node name="flame" type="AnimatedSprite2D" parent="Area2D2-fire" unique_id=1950285447]
+position = Vector2(-0.9968109, -7.6293945e-06)
+scale = Vector2(1, 1.0000001)
 sprite_frames = SubResource("SpriteFrames_o2dtp")
 animation = &"flame"
 autoplay = "flame"
@@ -1464,9 +1477,26 @@ position = Vector2(813.90045, -270.6886)
 script = ExtResource("8_u4d3h")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D" unique_id=1603756573]
-position = Vector2(4.7683716e-06, -0.7937956)
+position = Vector2(-1.7523804, 12.700928)
 scale = Vector2(1, 1.0000001)
 shape = SubResource("RectangleShape2D_u4d3h")
 
+[node name="GenericDmgDealer" type="Area2D" parent="." unique_id=733401568]
+position = Vector2(256.68018, -6.350441)
+scale = Vector2(1, 1.0000001)
+script = ExtResource("9_o2dtp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="GenericDmgDealer" unique_id=1164187561]
+position = Vector2(-0.99679565, 3.9690475)
+scale = Vector2(1.0000001, 1.0000001)
+shape = SubResource("RectangleShape2D_mon3b")
+
+[node name="Sprite2D" type="Sprite2D" parent="GenericDmgDealer" unique_id=742822691]
+position = Vector2(-5.722046e-06, 10.319454)
+scale = Vector2(0.05396158, 0.09995321)
+texture = ExtResource("10_l6ydm")
+
+[connection signal="body_entered" from="Area2D2-fire" to="Area2D2-fire" method="_on_body_entered"]
 [connection signal="area_entered" from="Area2D" to="Area2D" method="_on_area_entered"]
 [connection signal="body_entered" from="Area2D" to="Area2D" method="_on_body_entered"]
+[connection signal="body_entered" from="GenericDmgDealer" to="GenericDmgDealer" method="_on_body_entered"]
