@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://ktdh5my5fwog"
-path="res://.godot/imported/Screenshot 2026-02-04 at 9.25.12 PM.png-e2d7b462d36f96cc9e01b1ad55b42758.ctex"
+uid="uid://ds2numxltwn36"
+path="res://.godot/imported/elk.png-72a22ab93e56aafba4b2498fa979315d.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/SolariaSelectAssets/Screenshot 2026-02-04 at 9.25.12 PM.png"
-dest_files=["res://.godot/imported/Screenshot 2026-02-04 at 9.25.12 PM.png-e2d7b462d36f96cc9e01b1ad55b42758.ctex"]
+source_file="res://assets/SolariaSelectAssets/elk.png"
+dest_files=["res://.godot/imported/elk.png-72a22ab93e56aafba4b2498fa979315d.ctex"]
 
 [params]
 

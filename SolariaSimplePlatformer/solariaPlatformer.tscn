@@ -9,7 +9,7 @@
 [ext_resource type="Texture2D" uid="uid://cmjwo2rg2emj0" path="res://assets/SolariaSelectAssets/Hero 01.png" id="7_fl656"]
 [ext_resource type="Script" uid="uid://o6h3s7rnv7o2" path="res://SolariaSimplePlatformer/WinChest.gd" id="8_u4d3h"]
 [ext_resource type="Script" uid="uid://78ylxyt886xd" path="res://SolariaSimplePlatformer/enemyArea.gd" id="9_o2dtp"]
-[ext_resource type="Texture2D" uid="uid://ktdh5my5fwog" path="res://assets/SolariaSelectAssets/Screenshot 2026-02-04 at 9.25.12 PM.png" id="10_l6ydm"]
+[ext_resource type="Texture2D" uid="uid://ds2numxltwn36" path="res://assets/SolariaSelectAssets/elk.png" id="10_l6ydm"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_4orea"]
 texture = ExtResource("2_h1wif")
@@ -1492,8 +1492,8 @@ scale = Vector2(1.0000001, 1.0000001)
 shape = SubResource("RectangleShape2D_mon3b")
 
 [node name="Sprite2D" type="Sprite2D" parent="GenericDmgDealer" unique_id=742822691]
-position = Vector2(-1.4305115e-06, 21.432787)
-scale = Vector2(0.08650716, 0.14254138)
+position = Vector2(-5.722046e-06, 10.319454)
+scale = Vector2(0.05396158, 0.09995321)
 texture = ExtResource("10_l6ydm")
 
 [connection signal="body_entered" from="Area2D2-fire" to="Area2D2-fire" method="_on_body_entered"]
