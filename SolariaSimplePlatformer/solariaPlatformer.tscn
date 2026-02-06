@@ -4,6 +4,7 @@
 [ext_resource type="Texture2D" uid="uid://bmp5aq5afqpjn" path="res://assets/SolariaSelectAssets/Solaria Demo Tiles.png" id="2_h1wif"]
 [ext_resource type="Texture2D" uid="uid://c7i6terjutn8g" path="res://assets/art/static 2d/old medallion assets/seb tiles and stuff.png" id="3_bxyrb"]
 [ext_resource type="Script" uid="uid://b23yf5yk6b04d" path="res://basicplatformercs2/character_body_2d.gd" id="3_yl157"]
+[ext_resource type="Script" uid="uid://bq0l0bgb5t6mx" path="res://basicplatformercs2/speed_pickup.gd" id="4_bxyrb"]
 [ext_resource type="Texture2D" uid="uid://bykqa6jdt7ioc" path="res://assets/SolariaSelectAssets/!Flame.png" id="5_qpokr"]
 [ext_resource type="Texture2D" uid="uid://dqubegj6sojvl" path="res://assets/SolariaSelectAssets/!Chest.png" id="6_hbaif"]
 [ext_resource type="Texture2D" uid="uid://cmjwo2rg2emj0" path="res://assets/SolariaSelectAssets/Hero 01.png" id="7_fl656"]
@@ -1187,6 +1188,14 @@ animations = [{
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_3ygas"]
 size = Vector2(26.205032, 46.05581)
 
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_qpokr"]
+size = Vector2(11.522301, 19.690704)
+
+[sub_resource type="Gradient" id="Gradient_hbaif"]
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_fl656"]
+gradient = SubResource("Gradient_hbaif")
+
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_l6ydm"]
 size = Vector2(26.41566, 30.16476)
 
@@ -1422,6 +1431,19 @@ metadata/_aseprite_wizard_source_file_hash_ = "e427e089e547385bd982dad156d4a233"
 position = Vector2(-0.49839783, 0.7938175)
 scale = Vector2(0.99999994, 1)
 shape = SubResource("RectangleShape2D_3ygas")
+
+[node name="SpeedPickup" type="Area2D" parent="." unique_id=1847404137]
+script = ExtResource("4_bxyrb")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="SpeedPickup" unique_id=1644764221]
+position = Vector2(206.91977, -144.0296)
+scale = Vector2(1, 1.0000001)
+shape = SubResource("RectangleShape2D_qpokr")
+
+[node name="Sprite2D" type="Sprite2D" parent="SpeedPickup" unique_id=1352680969]
+position = Vector2(207.13948, -143.55545)
+scale = Vector2(0.18070737, 0.30154797)
+texture = SubResource("GradientTexture2D_fl656")
 
 [node name="Area2D2-fire" type="Area2D" parent="." unique_id=436450821]
 position = Vector2(-4.9840775, -38.10279)
