@@ -1196,8 +1196,6 @@ size = Vector2(11.522301, 19.690704)
 [sub_resource type="GradientTexture2D" id="GradientTexture2D_fl656"]
 gradient = SubResource("Gradient_hbaif")
 
-[node name="Node2D" type="Node2D" unique_id=1219767825]
-position = Vector2(276, 545)
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_l6ydm"]
 size = Vector2(26.41566, 30.16476)
 
@@ -1446,6 +1444,7 @@ shape = SubResource("RectangleShape2D_qpokr")
 position = Vector2(207.13948, -143.55545)
 scale = Vector2(0.18070737, 0.30154797)
 texture = SubResource("GradientTexture2D_fl656")
+
 [node name="Area2D2-fire" type="Area2D" parent="." unique_id=436450821]
 position = Vector2(-4.9840775, -38.10279)
 script = ExtResource("9_o2dtp")
