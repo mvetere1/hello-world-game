@@ -1,0 +1,14 @@
+[remap]
+
+importer="aseprite_wizard.plugin.noop"
+type="PackedDataContainer"
+uid="uid://b7agqrth678fx"
+path="res://.godot/imported/character designs.aseprite-0d544943e7cbd8c14cb9ec34fa27042b.res"
+
+[deps]
+
+source_file="res://assets/art/animated 2d/character designs.aseprite"
+dest_files=["res://.godot/imported/character designs.aseprite-0d544943e7cbd8c14cb9ec34fa27042b.res"]
+
+[params]
+
