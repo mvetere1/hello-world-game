@@ -1188,7 +1188,6 @@ animations = [{
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_3ygas"]
 size = Vector2(26.205032, 46.05581)
 
-<<<<<<< HEAD
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_qpokr"]
 size = Vector2(11.522301, 19.690704)
 
@@ -1199,7 +1198,6 @@ gradient = SubResource("Gradient_hbaif")
 
 [node name="Node2D" type="Node2D" unique_id=1219767825]
 position = Vector2(276, 545)
-=======
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_l6ydm"]
 size = Vector2(26.41566, 30.16476)
 
@@ -1378,7 +1376,6 @@ size = Vector2(64.79306, 126.61241)
 
 [node name="Node2D2" type="Node2D" unique_id=1219767825]
 position = Vector2(267, 553)
->>>>>>> main
 scale = Vector2(2.006388, 1.2597501)
 
 [node name="TileMapLayer2_background_grass" type="TileMapLayer" parent="." unique_id=928914951]
@@ -1437,7 +1434,6 @@ position = Vector2(-0.49839783, 0.7938175)
 scale = Vector2(0.99999994, 1)
 shape = SubResource("RectangleShape2D_3ygas")
 
-<<<<<<< HEAD
 [node name="SpeedPickup" type="Area2D" parent="." unique_id=1847404137]
 script = ExtResource("4_bxyrb")
 
@@ -1450,7 +1446,6 @@ shape = SubResource("RectangleShape2D_qpokr")
 position = Vector2(207.13948, -143.55545)
 scale = Vector2(0.18070737, 0.30154797)
 texture = SubResource("GradientTexture2D_fl656")
-=======
 [node name="Area2D2-fire" type="Area2D" parent="." unique_id=436450821]
 position = Vector2(-4.9840775, -38.10279)
 script = ExtResource("9_o2dtp")
@@ -1528,4 +1523,3 @@ texture = ExtResource("10_l6ydm")
 [connection signal="area_entered" from="Area2D" to="Area2D" method="_on_area_entered"]
 [connection signal="body_entered" from="Area2D" to="Area2D" method="_on_body_entered"]
 [connection signal="body_entered" from="GenericDmgDealer" to="GenericDmgDealer" method="_on_body_entered"]
->>>>>>> main
