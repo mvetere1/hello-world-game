@@ -11,6 +11,7 @@ var in_knockback := false
 func die():
 	print("Character died — restarting level")
 	$AnimatedSprite2D.play("now poop")
+	$"../DeathSoundFx".play()
 	#get_tree().reload_current_scene()
 
 func apply_knockback(source_position: float):
