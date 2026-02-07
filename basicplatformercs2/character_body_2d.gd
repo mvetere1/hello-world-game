@@ -12,6 +12,7 @@ func die():
 	print("Character died — restarting level")
 	$AnimatedSprite2D.play("now poop")
 	print("printing from tommy's sprite branch")
+	#big tom's test comment from tommy's sprite branch
 	#get_tree().reload_current_scene()
 
 func apply_knockback(source_position: float):
