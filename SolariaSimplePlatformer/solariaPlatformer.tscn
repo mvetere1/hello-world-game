@@ -1,4 +1,4 @@
-[gd_scene load_steps=131 format=4 uid="uid://bpn2hh1udqco5"]
+[gd_scene load_steps=135 format=4 uid="uid://bpn2hh1udqco5"]
 
 [ext_resource type="Texture2D" uid="uid://vwakoyq0nw3j" path="res://assets/SolariaSelectAssets/Solaria Palette.png" id="2_bxyrb"]
 [ext_resource type="Texture2D" uid="uid://bmp5aq5afqpjn" path="res://assets/SolariaSelectAssets/Solaria Demo Tiles.png" id="2_h1wif"]
@@ -1968,20 +1968,20 @@ position = Vector2(7.4761367, -8.731882)
 scale = Vector2(0.99999994, 1)
 shape = SubResource("RectangleShape2D_3ygas")
 
-[node name="SpeedPickup" type="Area2D" parent="." unique_id=1847404137]
+[node name="SpeedPickup" type="Area2D" parent="."]
 script = ExtResource("4_bxyrb")
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="SpeedPickup" unique_id=1644764221]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="SpeedPickup"]
 position = Vector2(206.91977, -144.0296)
 scale = Vector2(1, 1.0000001)
 shape = SubResource("RectangleShape2D_qpokr")
 
-[node name="Sprite2D" type="Sprite2D" parent="SpeedPickup" unique_id=1352680969]
+[node name="Sprite2D" type="Sprite2D" parent="SpeedPickup"]
 position = Vector2(207.13948, -143.55545)
 scale = Vector2(0.18070737, 0.30154797)
 texture = SubResource("GradientTexture2D_fl656")
 
-[node name="Area2D2-fire" type="Area2D" parent="." unique_id=436450821]
+[node name="Area2D2-fire" type="Area2D" parent="."]
 position = Vector2(-4.9840775, -38.10279)
 script = ExtResource("9_o2dtp")
 

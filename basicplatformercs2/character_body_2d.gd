@@ -49,7 +49,7 @@ func _physics_process(delta: float) -> void:
 		$AnimatedSprite2D.play("turn into butthole monster")
 	else:
 		velocity.x = move_toward(velocity.x, 0, speed)
-		$AnimatedSprite2D.stop()
+		#$AnimatedSprite2D.stop()
 
 
 	move_and_slide()
