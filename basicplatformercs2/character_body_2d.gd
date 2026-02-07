@@ -12,6 +12,8 @@ func die():
 	print("Character died — restarting level")
 	$AnimatedSprite2D.play("now poop")
 	#get_tree().reload_current_scene()
+	print("printing from Matts branch")
+	
 
 func apply_knockback(source_position: float):
 	velocity.x = source_position * knockback_strength
