@@ -8,7 +8,7 @@
 [ext_resource type="Texture2D" uid="uid://bykqa6jdt7ioc" path="res://assets/SolariaSelectAssets/!Flame.png" id="5_qpokr"]
 [ext_resource type="Texture2D" uid="uid://dqubegj6sojvl" path="res://assets/SolariaSelectAssets/!Chest.png" id="6_hbaif"]
 [ext_resource type="Texture2D" uid="uid://cmjwo2rg2emj0" path="res://assets/SolariaSelectAssets/Hero 01.png" id="7_fl656"]
-[ext_resource type="Script" path="res://SolariaSimplePlatformer/WinChest.gd" id="8_u4d3h"]
+[ext_resource type="Script" uid="uid://o6h3s7rnv7o2" path="res://SolariaSimplePlatformer/WinChest.gd" id="8_u4d3h"]
 [ext_resource type="Script" uid="uid://78ylxyt886xd" path="res://SolariaSimplePlatformer/enemyArea.gd" id="9_o2dtp"]
 [ext_resource type="Texture2D" uid="uid://ds2numxltwn36" path="res://assets/SolariaSelectAssets/elk.png" id="10_l6ydm"]
 [ext_resource type="Texture2D" uid="uid://dixerscb1u3er" path="res://assets/art/animated 2d/pngs/butthole monster-Sheet-Sheet.png" id="11_mon3b"]

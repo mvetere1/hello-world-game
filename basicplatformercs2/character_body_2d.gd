@@ -11,6 +11,7 @@ var in_knockback := false
 func die():
 	print("Character died — restarting level")
 	$AnimatedSprite2D.play("now poop")
+	print("printing from tommy's sprite branch")
 	#get_tree().reload_current_scene()
 	print("printing from Matts branch")
 	
