@@ -1,0 +1,14 @@
+[remap]
+
+importer="aseprite_wizard.plugin.noop"
+type="PackedDataContainer"
+uid="uid://yenbw0pctwn5"
+path="res://.godot/imported/LeapingFrog.aseprite-1af56c62b885098fd590317faae5bf75.res"
+
+[deps]
+
+source_file="res://assets/animals/Leaping Frog/LeapingFrog.aseprite"
+dest_files=["res://.godot/imported/LeapingFrog.aseprite-1af56c62b885098fd590317faae5bf75.res"]
+
+[params]
+
