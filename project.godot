@@ -15,7 +15,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 [application]
 
 config/name="HelloWorldGame"
-run/main_scene="uid://bps4wuu3v1s41"
+run/main_scene="uid://bxvduxtbf3v5r"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
 
@@ -24,7 +24,6 @@ config/icon="res://icon.svg"
 window/size/viewport_width=1920
 window/size/viewport_height=1200
 window/stretch/mode="canvas_items"
-window/stretch/scale=5.0
 
 [editor_plugins]
 

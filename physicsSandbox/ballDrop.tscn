@@ -1,0 +1,84 @@
+[gd_scene format=3 uid="uid://bxvduxtbf3v5r"]
+
+[ext_resource type="PackedScene" uid="uid://cpnx056s22ilh" path="res://physicsSandbox/ball.tscn" id="1_rk7ry"]
+[ext_resource type="Texture2D" uid="uid://iwuwpo0nd0ax" path="res://physicsSandbox/shapeSprites/blue_body_square.png" id="2_4xjye"]
+[ext_resource type="Texture2D" uid="uid://kje3ej5ptnqi" path="res://physicsSandbox/shapeSprites/tile_ramp_left.png" id="2_j2pws"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_j2pws"]
+size = Vector2(907, 48)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_y817s"]
+size = Vector2(101.71127, 102.5)
+
+[node name="Node2D" type="Node2D" unique_id=838186848]
+position = Vector2(29, 94)
+
+[node name="LongFloor" type="StaticBody2D" parent="." unique_id=1889999349]
+position = Vector2(972, 1069)
+scale = Vector2(2.2, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="LongFloor" unique_id=1411457327]
+position = Vector2(-1.3181458, 4)
+shape = SubResource("RectangleShape2D_j2pws")
+
+[node name="Sprite2D" type="Sprite2D" parent="LongFloor" unique_id=1461089399]
+position = Vector2(-0.81814575, 2)
+scale = Vector2(11.275001, 0.575)
+texture = ExtResource("2_4xjye")
+
+[node name="Longplatform" type="StaticBody2D" parent="." unique_id=1121076104]
+position = Vector2(688, 428.99994)
+rotation = 0.3013684
+scale = Vector2(0.76, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Longplatform" unique_id=1863957999]
+position = Vector2(-1.3181458, 4)
+shape = SubResource("RectangleShape2D_j2pws")
+
+[node name="Sprite2D" type="Sprite2D" parent="Longplatform" unique_id=1005670102]
+position = Vector2(-0.81814575, 2)
+scale = Vector2(11.275001, 0.575)
+texture = ExtResource("2_4xjye")
+
+[node name="Triangle1" type="StaticBody2D" parent="." unique_id=1791932781]
+position = Vector2(723, 200)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Triangle1" unique_id=2090715640]
+position = Vector2(3, 1.0000153)
+rotation = 0.7513595
+shape = SubResource("RectangleShape2D_y817s")
+
+[node name="Sprite2D" type="Sprite2D" parent="Triangle1" unique_id=1289750442]
+position = Vector2(-32, -24)
+texture = ExtResource("2_j2pws")
+
+[node name="Triangle2" type="StaticBody2D" parent="." unique_id=2000794228]
+position = Vector2(1174, 661)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Triangle2" unique_id=1089691774]
+position = Vector2(1, -2.000002)
+rotation = 0.7513595
+shape = SubResource("RectangleShape2D_y817s")
+
+[node name="Sprite2D" type="Sprite2D" parent="Triangle2" unique_id=232695500]
+position = Vector2(-34, -27)
+texture = ExtResource("2_j2pws")
+
+[node name="Ball" parent="." unique_id=2091771567 instance=ExtResource("1_rk7ry")]
+position = Vector2(646, 59)
+rotation = -6.5050144
+
+[node name="Ball2" parent="." unique_id=1485005849 instance=ExtResource("1_rk7ry")]
+position = Vector2(415, 144)
+rotation = -6.5050144
+
+[node name="Curve" type="StaticBody2D" parent="." unique_id=279451600]
+
+[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="Curve" unique_id=330372470]
+position = Vector2(814, 673)
+polygon = PackedVector2Array(-48, 122, 54, 137, 213, 87, 278, 26, 295, 155, 85, 224, -2, 215)
+
+[node name="Polygon2D" type="Polygon2D" parent="Curve" unique_id=2078271309]
+position = Vector2(770, 804)
+color = Color(0.6841613, 0.97696596, 0.55407554, 1)
+polygon = PackedVector2Array(19, 1, 157, -9, 255, -40, 314, -91, 332, 19, 141, 95, 30, 76)
