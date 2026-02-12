@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://bxvduxtbf3v5r"]
 
-[ext_resource type="PackedScene" uid="uid://cpnx056s22ilh" path="res://ball.tscn" id="1_rk7ry"]
+[ext_resource type="PackedScene" uid="uid://cpnx056s22ilh" path="res://physicsSandbox/ball.tscn" id="1_rk7ry"]
 [ext_resource type="Texture2D" uid="uid://iwuwpo0nd0ax" path="res://physicsSandbox/shapeSprites/blue_body_square.png" id="2_4xjye"]
 [ext_resource type="Texture2D" uid="uid://kje3ej5ptnqi" path="res://physicsSandbox/shapeSprites/tile_ramp_left.png" id="2_j2pws"]
 
