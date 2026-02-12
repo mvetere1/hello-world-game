@@ -1,0 +1,23 @@
+[gd_scene format=3 uid="uid://cpnx056s22ilh"]
+
+[ext_resource type="Texture2D" uid="uid://c748lvnpxatav" path="res://physicsSandbox/shapeSprites/yellow_body_circle.png" id="1_x8fbi"]
+
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_x8fbi"]
+bounce = 0.39
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_x8fbi"]
+radius = 38.880627
+
+[node name="Ball" type="RigidBody2D" unique_id=2091771567]
+rotation = 0.28602028
+physics_material_override = SubResource("PhysicsMaterial_x8fbi")
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=1952156676]
+position = Vector2(-0.010292053, -0.8110657)
+rotation = -0.2645357
+texture = ExtResource("1_x8fbi")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=1338033562]
+position = Vector2(-0.010292053, -0.8110657)
+rotation = -0.2645357
+shape = SubResource("CircleShape2D_x8fbi")
