@@ -1,0 +1,1324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All Time At Once - Ultimate Edition</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #0a0a0a;
+            font-family: 'Courier New', monospace;
+            color: #ffffff;
+        }
+        
+        #container {
+            text-align: center;
+        }
+        
+        canvas {
+            border: 1px solid #333;
+            background: #111;
+        }
+        
+        canvas.aim-mode {
+            cursor: crosshair;
+        }
+        
+        canvas.wall-mode {
+            cursor: cell;
+        }
+        
+        #controls {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            background: #2a2a2a;
+            color: #4a9eff;
+            border: 1px solid #444;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        
+        button:hover {
+            background: #3a3a3a;
+            border-color: #4a9eff;
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        button.active {
+            background: #4a9eff;
+            color: #0a0a0a;
+            border-color: #6ab9ff;
+        }
+        
+        #stats {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #666;
+        }
+        
+        #instructions {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #888;
+            max-width: 800px;
+        }
+        
+        .key {
+            color: #4a9eff;
+        }
+        
+        .stat-good {
+            color: #4a9eff;
+        }
+        
+        .stat-warning {
+            color: #ff9f4a;
+        }
+        
+        .stat-bad {
+            color: #ff4a4a;
+        }
+        
+        .mode-indicator {
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 3px;
+        }
+        
+        .mode-aim {
+            background: #1a3a5a;
+            color: #4a9eff;
+        }
+        
+        .mode-wall {
+            background: #3a2a1a;
+            color: #ff9f4a;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <canvas id="canvas" width="1400" height="900" class="aim-mode"></canvas>
+        <div id="controls">
+            <button id="toggleMode" class="active">🎯 Aim Mode</button>
+            <button id="fireAll">🔥 Fire All Cannons</button>
+            <button id="clearAll">Clear All Shots</button>
+            <button id="clearWalls">Clear Custom Walls</button>
+            <button id="resetAll">Reset Everything</button>
+        </div>
+        <div id="stats">
+            Mode: <span id="modeIndicator" class="mode-indicator mode-aim">AIM</span> | 
+            Cannons: <span id="cannonCount" class="stat-good">3</span> |
+            FPS: <span id="fps" class="stat-good">60</span> | 
+            Total Points: <span id="pointCount">0</span> | 
+            Walls: <span id="wallCount" class="stat-good">4</span>
+        </div>
+        <div id="instructions">
+            <p id="aimInstructions"><span class="key">MOVE MOUSE</span> to view all possible futures | What you see has already happened in time | <span class="key">CLICK</span> to witness it</p>
+            <p id="wallInstructions" style="display:none"><span class="key">CLICK & DRAG</span> to create a wall | <span class="key">ESC</span> cancel | Walls shape destiny</p>
+            <p style="font-size: 12px; margin-top: 8px;">3 timelines • All moments exist simultaneously • The future and past are one</p>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================================
+        // CONFIGURATION
+        // ============================================================================
+        
+        const CONFIG = {
+            canvasWidth: 1400,        // MUCH LARGER arena
+            canvasHeight: 900,        // MUCH LARGER arena
+            ballRadius: 25,           // Large balls for visibility
+            initialSpeed: 0.1848,     // 11% of original
+            gravity: 0.0,             // NO GRAVITY - pure straight lines
+            dampingFactor: 0.9999,    // Ping pong balls - almost no air resistance
+            minVelocity: 0.01,        // Lower threshold for stopping
+            wallBounceCoefficient: 0.98,  // Ping pong bounce - very elastic!
+            trailDotRadius: 25,       // SAME SIZE as balls - 1:1 ratio
+            trailOpacityBase: 0.7,    // More visible trails
+            projectionDotRadius: 25,  // SAME SIZE as balls - the future is already real
+            projectionOpacity: 0.7,   // Projection is as real as reality
+            reverseAnimationSpeed: 3,
+            
+            // Worm effect - overlap by rendering every position
+            trailSkipRate: 1,         // Render every single position for continuous worm
+            
+            // OPTIMIZATION: LOD
+            lodEnabled: false,        // Disabled for clearer view
+            lodDistantSkip: 1,
+            lodOldSkip: 1,
+            
+            // Simultaneous projection for all cannons
+            simultaneousProjection: true,
+            
+            // Collision highlight duration (frames)
+            collisionHighlightDuration: 30,
+        };
+        
+        // Default walls - smaller for more open space
+        const DEFAULT_WALLS = [
+            { x1: 700, y1: 350, x2: 700, y2: 550 },      // Vertical center (shorter)
+            { x1: 350, y1: 450, x2: 550, y2: 450 },      // Horizontal left (shorter)
+            { x1: 850, y1: 450, x2: 1050, y2: 450 },     // Horizontal right (shorter)
+        ];
+        
+        let WALLS = [...DEFAULT_WALLS];
+        let customWalls = [];
+        
+        // Cannon spawn positions
+        const CANNON_POSITIONS = [
+            { x: 100, y: 800, color: [60, 160, 255] },     // Bottom left
+            { x: 1300, y: 800, color: [255, 100, 100] },   // Bottom right
+            { x: 700, y: 50,  color: [100, 255, 100] },    // Top center
+        ];
+        
+        // ============================================================================
+        // CANVAS SETUP
+        // ============================================================================
+        
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // ============================================================================
+        // STATE MANAGEMENT
+        // ============================================================================
+        
+        let cannons = [];
+        let gameMode = 'aim'; // 'aim' or 'wall'
+        let frameCount = 0;
+        let lastFPSUpdate = performance.now();
+        let currentFPS = 60;
+        let mouseX = 400;
+        let mouseY = 300;
+        
+        // Wall creation state
+        let wallStartX = null;
+        let wallStartY = null;
+        let wallEndX = null;
+        let wallEndY = null;
+        let isCreatingWall = false;
+        
+        // Cannon class
+        class Cannon {
+            constructor(id, x, y, color) {
+                this.id = id;
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.angle = -Math.PI / 4;
+                this.length = 40;
+                
+                this.isSimulating = false;
+                this.simulationComplete = false;
+                this.isReverseAnimating = false;
+                
+                this.timeHistory = [];
+                this.projectedTimeline = [];
+                
+                this.ballX = 0;
+                this.ballY = 0;
+                this.ballVX = 0;
+                this.ballVY = 0;
+                
+                this.finalX = 0;
+                this.finalY = 0;
+                
+                this.reverseAnimationIndex = 0;
+                this.shotAge = 0;
+                this.collisionPoints = [];  // Store collision X marks
+                this.projectedCollisions = [];  // Store predicted collision points
+            }
+            
+            reset() {
+                this.isSimulating = false;
+                this.simulationComplete = false;
+                this.isReverseAnimating = false;
+                this.timeHistory = [];
+                this.projectedTimeline = [];
+                this.shotAge = 0;
+            }
+            
+            fire() {
+                this.isSimulating = true;
+                this.simulationComplete = false;
+                this.timeHistory = [];
+                
+                this.ballX = this.x;
+                this.ballY = this.y;
+                this.ballVX = Math.cos(this.angle) * CONFIG.initialSpeed;
+                this.ballVY = Math.sin(this.angle) * CONFIG.initialSpeed;
+                this.shotAge = 0;
+            }
+            
+            pointAt(targetX, targetY) {
+                const dx = targetX - this.x;
+                const dy = targetY - this.y;
+                this.angle = Math.atan2(dy, dx);
+            }
+        }
+        
+        // ============================================================================
+        // PHYSICS SIMULATION
+        // ============================================================================
+        
+        function checkLineCircleCollision(x, y, radius, x1, y1, x2, y2) {
+            const dx = x - x1;
+            const dy = y - y1;
+            const lx = x2 - x1;
+            const ly = y2 - y1;
+            const lineLen = Math.sqrt(lx * lx + ly * ly);
+            
+            if (lineLen === 0) return { hit: false };
+            
+            const ldx = lx / lineLen;
+            const ldy = ly / lineLen;
+            const dot = dx * ldx + dy * ldy;
+            const clampedDot = Math.max(0, Math.min(lineLen, dot));
+            
+            const closestX = x1 + ldx * clampedDot;
+            const closestY = y1 + ldy * clampedDot;
+            const distX = x - closestX;
+            const distY = y - closestY;
+            const dist = Math.sqrt(distX * distX + distY * distY);
+            
+            if (dist < radius) {
+                const normalX = distX / dist;
+                const normalY = distY / dist;
+                return { hit: true, normal: { x: normalX, y: normalY }, dist: dist };
+            }
+            
+            return { hit: false };
+        }
+        
+        function simulateStep(x, y, vx, vy) {
+            vy += CONFIG.gravity;
+            vx *= CONFIG.dampingFactor;
+            vy *= CONFIG.dampingFactor;
+            
+            x += vx;
+            y += vy;
+            
+            const margin = CONFIG.ballRadius;
+            
+            if (x - margin < 0) {
+                x = margin;
+                vx = Math.abs(vx) * CONFIG.wallBounceCoefficient;
+            }
+            if (x + margin > CONFIG.canvasWidth) {
+                x = CONFIG.canvasWidth - margin;
+                vx = -Math.abs(vx) * CONFIG.wallBounceCoefficient;
+            }
+            if (y - margin < 0) {
+                y = margin;
+                vy = Math.abs(vy) * CONFIG.wallBounceCoefficient;
+            }
+            if (y + margin > CONFIG.canvasHeight) {
+                y = CONFIG.canvasHeight - margin;
+                vy = -Math.abs(vy) * CONFIG.wallBounceCoefficient;
+                vx *= 0.9;
+            }
+            
+            for (const wall of WALLS) {
+                const collision = checkLineCircleCollision(x, y, CONFIG.ballRadius, wall.x1, wall.y1, wall.x2, wall.y2);
+                if (collision.hit) {
+                    const pushOut = CONFIG.ballRadius - collision.dist + 0.1;
+                    x += collision.normal.x * pushOut;
+                    y += collision.normal.y * pushOut;
+                    const dot = vx * collision.normal.x + vy * collision.normal.y;
+                    vx = (vx - 2 * dot * collision.normal.x) * CONFIG.wallBounceCoefficient;
+                    vy = (vy - 2 * dot * collision.normal.y) * CONFIG.wallBounceCoefficient;
+                }
+            }
+            
+            const speed = Math.sqrt(vx * vx + vy * vy);
+            const stopped = speed < CONFIG.minVelocity;
+            
+            return { x, y, vx, vy, stopped };
+        }
+        
+        function runFullSimulation(startX, startY, startVX, startVY, maxSteps = 10000) {
+            const timeline = [];
+            let x = startX, y = startY, vx = startVX, vy = startVY;
+            let step = 0;
+            
+            while (step < maxSteps) {
+                timeline.push({ x, y, vx, vy, step });
+                const nextState = simulateStep(x, y, vx, vy);
+                x = nextState.x;
+                y = nextState.y;
+                vx = nextState.vx;
+                vy = nextState.vy;
+                
+                if (nextState.stopped) {
+                    timeline.push({ x, y, vx, vy, step: step + 1 });
+                    break;
+                }
+                step++;
+            }
+            
+            return timeline;
+        }
+        
+        // MULTI-BALL COLLISION PREDICTION - simulates all balls together
+        function runMultiBallSimulation(cannonStates, maxSteps = 5000) {
+            // Initialize ball states
+            const balls = cannonStates.map(state => ({
+                id: state.id,
+                x: state.x,
+                y: state.y,
+                vx: state.vx,
+                vy: state.vy,
+                timeline: [],
+                collisions: []
+            }));
+            
+            let step = 0;
+            let allStopped = false;
+            
+            while (step < maxSteps && !allStopped) {
+                // Record current positions
+                balls.forEach(ball => {
+                    ball.timeline.push({ x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, step });
+                });
+                
+                // Check ball-to-ball collisions
+                for (let i = 0; i < balls.length; i++) {
+                    for (let j = i + 1; j < balls.length; j++) {
+                        const ball1 = balls[i];
+                        const ball2 = balls[j];
+                        
+                        const dx = ball2.x - ball1.x;
+                        const dy = ball2.y - ball1.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        const minDist = CONFIG.ballRadius * 2;
+                        
+                        if (dist < minDist && dist > 0) {
+                            const nx = dx / dist;
+                            const ny = dy / dist;
+                            
+                            // Separate balls
+                            const overlap = minDist - dist;
+                            const separateX = nx * overlap * 0.5;
+                            const separateY = ny * overlap * 0.5;
+                            
+                            ball1.x -= separateX;
+                            ball1.y -= separateY;
+                            ball2.x += separateX;
+                            ball2.y += separateY;
+                            
+                            // Elastic collision
+                            const relVelX = ball1.vx - ball2.vx;
+                            const relVelY = ball1.vy - ball2.vy;
+                            const dotProduct = relVelX * nx + relVelY * ny;
+                            
+                            if (dotProduct < 0) {
+                                const impulse = dotProduct * CONFIG.wallBounceCoefficient;
+                                
+                                ball1.vx -= impulse * nx;
+                                ball1.vy -= impulse * ny;
+                                ball2.vx += impulse * nx;
+                                ball2.vy += impulse * ny;
+                                
+                                // Record collision point
+                                const collisionX = (ball1.x + ball2.x) / 2;
+                                const collisionY = (ball1.y + ball2.y) / 2;
+                                const collision = { x: collisionX, y: collisionY };
+                                ball1.collisions.push(collision);
+                                ball2.collisions.push(collision);
+                            }
+                        }
+                    }
+                }
+                
+                // Simulate next step for each ball
+                allStopped = true;
+                balls.forEach(ball => {
+                    const nextState = simulateStep(ball.x, ball.y, ball.vx, ball.vy);
+                    ball.x = nextState.x;
+                    ball.y = nextState.y;
+                    ball.vx = nextState.vx;
+                    ball.vy = nextState.vy;
+                    
+                    if (!nextState.stopped) {
+                        allStopped = false;
+                    }
+                });
+                
+                step++;
+            }
+            
+            // Final position record
+            balls.forEach(ball => {
+                ball.timeline.push({ x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, step });
+            });
+            
+            return balls;
+        }
+        
+        // ============================================================================
+        // MODE MANAGEMENT
+        // ============================================================================
+        
+        function toggleMode() {
+            gameMode = gameMode === 'aim' ? 'wall' : 'aim';
+            updateModeUI();
+        }
+        
+        function updateModeUI() {
+            const btn = document.getElementById('toggleMode');
+            const modeInd = document.getElementById('modeIndicator');
+            const aimInst = document.getElementById('aimInstructions');
+            const wallInst = document.getElementById('wallInstructions');
+            
+            if (gameMode === 'aim') {
+                btn.textContent = '🎯 Aim Mode';
+                btn.classList.add('active');
+                modeInd.textContent = 'AIM';
+                modeInd.className = 'mode-indicator mode-aim';
+                canvas.className = 'aim-mode';
+                aimInst.style.display = '';
+                wallInst.style.display = 'none';
+            } else {
+                btn.textContent = '🧱 Wall Mode';
+                btn.classList.remove('active');
+                modeInd.textContent = 'WALL';
+                modeInd.className = 'mode-indicator mode-wall';
+                canvas.className = 'wall-mode';
+                aimInst.style.display = 'none';
+                wallInst.style.display = '';
+            }
+        }
+        
+        // ============================================================================
+        // CANNON MANAGEMENT
+        // ============================================================================
+        
+        function initializeAllCannons() {
+            cannons = [];
+            for (let i = 0; i < 3; i++) {
+                const pos = CANNON_POSITIONS[i];
+                const cannon = new Cannon(i, pos.x, pos.y, pos.color);
+                cannon.collisionHighlight = 0;  // Frames remaining for collision highlight
+                cannons.push(cannon);
+            }
+        }
+        
+        function fireAllCannons() {
+            cannons.forEach(cannon => {
+                if (!cannon.isSimulating && !cannon.simulationComplete) {
+                    cannon.fire();
+                }
+            });
+        }
+        
+        function clearAllShots() {
+            cannons.forEach(c => c.reset());
+        }
+        
+        function resetEverything() {
+            clearAllShots();
+            WALLS = [...DEFAULT_WALLS];
+            customWalls = [];
+            updateUI();
+        }
+        
+        function clearCustomWalls() {
+            WALLS = [...DEFAULT_WALLS];
+            customWalls = [];
+            updateUI();
+        }
+        
+        // ============================================================================
+        // BALL-TO-BALL COLLISION
+        // ============================================================================
+        
+        function handleBallCollisions() {
+            const activeBalls = cannons.filter(c => c.isSimulating && !c.simulationComplete);
+            
+            // Check collisions between all pairs of active balls
+            for (let i = 0; i < activeBalls.length; i++) {
+                for (let j = i + 1; j < activeBalls.length; j++) {
+                    const ball1 = activeBalls[i];
+                    const ball2 = activeBalls[j];
+                    
+                    const dx = ball2.ballX - ball1.ballX;
+                    const dy = ball2.ballY - ball1.ballY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const minDist = CONFIG.ballRadius * 2;
+                    
+                    if (dist < minDist && dist > 0) {
+                        // Normalize collision vector
+                        const nx = dx / dist;
+                        const ny = dy / dist;
+                        
+                        // Separate balls
+                        const overlap = minDist - dist;
+                        const separateX = nx * overlap * 0.5;
+                        const separateY = ny * overlap * 0.5;
+                        
+                        ball1.ballX -= separateX;
+                        ball1.ballY -= separateY;
+                        ball2.ballX += separateX;
+                        ball2.ballY += separateY;
+                        
+                        // Elastic collision (equal mass)
+                        const relVelX = ball1.ballVX - ball2.ballVX;
+                        const relVelY = ball1.ballVY - ball2.ballVY;
+                        const dotProduct = relVelX * nx + relVelY * ny;
+                        
+                        if (dotProduct < 0) { // Only collide if moving toward each other
+                            const impulse = dotProduct * 1.05;  // SUPER HARD BOUNCE - adds 5% energy!
+                            
+                            ball1.ballVX -= impulse * nx;
+                            ball1.ballVY -= impulse * ny;
+                            ball2.ballVX += impulse * nx;
+                            ball2.ballVY += impulse * ny;
+                            
+                            // COLLISION DETECTED! Set highlight on both balls
+                            ball1.collisionHighlight = CONFIG.collisionHighlightDuration;
+                            ball2.collisionHighlight = CONFIG.collisionHighlightDuration;
+                            
+                            // Mark collision point with X
+                            const collisionX = (ball1.ballX + ball2.ballX) / 2;
+                            const collisionY = (ball1.ballY + ball2.ballY) / 2;
+                            ball1.collisionPoints.push({ x: collisionX, y: collisionY });
+                            ball2.collisionPoints.push({ x: collisionX, y: collisionY });
+                        }
+                    }
+                }
+            }
+        }
+        
+        // ============================================================================
+        // UPDATE LOGIC
+        // ============================================================================
+        
+        function updateCannons() {
+            // Update all cannon projections (simultaneous aiming) WITH COLLISION PREDICTION
+            if (gameMode === 'aim' && CONFIG.simultaneousProjection) {
+                const needsProjection = cannons.filter(c => !c.isSimulating && !c.simulationComplete);
+                
+                if (needsProjection.length > 0) {
+                    // Prepare cannon states for multi-ball simulation
+                    const cannonStates = needsProjection.map(cannon => ({
+                        id: cannon.id,
+                        x: cannon.x,
+                        y: cannon.y,
+                        vx: Math.cos(cannon.angle) * CONFIG.initialSpeed,
+                        vy: Math.sin(cannon.angle) * CONFIG.initialSpeed
+                    }));
+                    
+                    // Run multi-ball simulation with collision detection
+                    const results = runMultiBallSimulation(cannonStates);
+                    
+                    // Apply results back to cannons
+                    results.forEach(result => {
+                        const cannon = cannons[result.id];
+                        cannon.projectedTimeline = result.timeline;
+                        cannon.projectedCollisions = result.collisions;
+                    });
+                }
+            }
+            
+            // Handle ball-to-ball collisions FIRST, before updating positions
+            handleBallCollisions();
+            
+            // Update all simulating cannons AFTER collision handling
+            cannons.forEach(cannon => {
+                if (cannon.isSimulating && !cannon.simulationComplete) {
+                    // Record CURRENT position (after collision adjustments)
+                    cannon.timeHistory.push({
+                        x: cannon.ballX,
+                        y: cannon.ballY,
+                        vx: cannon.ballVX,
+                        vy: cannon.ballVY,
+                        step: cannon.timeHistory.length
+                    });
+                    
+                    // Now simulate next step with potentially modified velocity
+                    const nextState = simulateStep(cannon.ballX, cannon.ballY, cannon.ballVX, cannon.ballVY);
+                    cannon.ballX = nextState.x;
+                    cannon.ballY = nextState.y;
+                    cannon.ballVX = nextState.vx;
+                    cannon.ballVY = nextState.vy;
+                    
+                    if (nextState.stopped) {
+                        cannon.timeHistory.push({
+                            x: cannon.ballX,
+                            y: cannon.ballY,
+                            vx: cannon.ballVX,
+                            vy: cannon.ballVY,
+                            step: cannon.timeHistory.length
+                        });
+                        
+                        cannon.finalX = cannon.ballX;
+                        cannon.finalY = cannon.ballY;
+                        cannon.isSimulating = false;
+                        cannon.simulationComplete = true;
+                        
+                        setTimeout(() => {
+                            if (cannon.timeHistory.length > 0) {
+                                cannon.isReverseAnimating = true;
+                                cannon.reverseAnimationIndex = cannon.timeHistory.length - 1;
+                            }
+                        }, 300);
+                    }
+                }
+                
+                if (cannon.isReverseAnimating) {
+                    cannon.reverseAnimationIndex -= CONFIG.reverseAnimationSpeed;
+                    if (cannon.reverseAnimationIndex <= 0) {
+                        cannon.isReverseAnimating = false;
+                        cannon.reverseAnimationIndex = 0;
+                    }
+                }
+                
+                if (cannon.simulationComplete) {
+                    cannon.shotAge++;
+                }
+            });
+        }
+        
+        // ============================================================================
+        // DANGER ZONE & WIN/LOSE DETECTION
+        // ============================================================================
+        
+        // Center danger zone - 1/10th of map area
+        const DANGER_ZONE = {
+            width: 350,
+            height: 250,
+            get x() { return (CONFIG.canvasWidth - this.width) / 2; },
+            get y() { return (CONFIG.canvasHeight - this.height) / 2; },
+            get centerX() { return CONFIG.canvasWidth / 2; },
+            get centerY() { return CONFIG.canvasHeight / 2; }
+        };
+        
+        function checkDangerZone() {
+            // Check if ANY projected ball enters the danger zone
+            for (const cannon of cannons) {
+                if (!cannon.isSimulating && !cannon.simulationComplete && cannon.projectedTimeline.length > 0) {
+                    for (const pos of cannon.projectedTimeline) {
+                        // Check if ball (with radius) intersects danger zone
+                        const ballLeft = pos.x - CONFIG.ballRadius;
+                        const ballRight = pos.x + CONFIG.ballRadius;
+                        const ballTop = pos.y - CONFIG.ballRadius;
+                        const ballBottom = pos.y + CONFIG.ballRadius;
+                        
+                        if (ballRight > DANGER_ZONE.x && 
+                            ballLeft < DANGER_ZONE.x + DANGER_ZONE.width &&
+                            ballBottom > DANGER_ZONE.y && 
+                            ballTop < DANGER_ZONE.y + DANGER_ZONE.height) {
+                            return true; // Ball enters danger zone
+                        }
+                    }
+                }
+            }
+            return false; // No balls enter danger zone
+        }
+        
+        // ============================================================================
+        // RENDERING
+        // ============================================================================
+        
+        function render() {
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, CONFIG.canvasWidth, CONFIG.canvasHeight);
+            
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(0, 0, CONFIG.canvasWidth, CONFIG.canvasHeight);
+            
+            // Check win/lose state
+            const isLosing = checkDangerZone();
+            
+            // Draw danger zone with pulsing effect
+            drawDangerZone(isLosing);
+            
+            // Draw win/lose overlay
+            drawGameState(isLosing);
+            
+            drawWalls();
+            
+            // Draw wall being created
+            if (isCreatingWall && wallStartX !== null) {
+                ctx.strokeStyle = '#ff9f4a';
+                ctx.lineWidth = 4;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(wallStartX, wallStartY);
+                ctx.lineTo(wallEndX || mouseX, wallEndY || mouseY);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            
+            // Draw predicted collision X marks (semi-transparent for future)
+            if (gameMode === 'aim') {
+                cannons.forEach(cannon => {
+                    if (!cannon.isSimulating && !cannon.simulationComplete) {
+                        cannon.projectedCollisions.forEach(point => {
+                            drawPredictedCollisionMarker(point.x, point.y);
+                        });
+                    }
+                });
+            }
+            
+            // Draw all cannon projections and trails
+            cannons.forEach(cannon => {
+                if (gameMode === 'aim' && !cannon.isSimulating && !cannon.simulationComplete && cannon.projectedTimeline.length > 0) {
+                    drawProjection(cannon);
+                }
+                
+                if (cannon.timeHistory.length > 0) {
+                    drawTimeHistory(cannon);
+                }
+                
+                // Draw simulating balls (live balls in flight)
+                if (cannon.isSimulating && !cannon.simulationComplete) {
+                    drawLiveBall(cannon);
+                }
+                
+                if (cannon.simulationComplete) {
+                    drawFinalBall(cannon);
+                }
+                
+                if (cannon.isReverseAnimating) {
+                    drawReverseAnimation(cannon);
+                }
+                
+                // Decrement collision highlight
+                if (cannon.collisionHighlight > 0) {
+                    cannon.collisionHighlight--;
+                }
+            });
+            
+            // Draw all collision X marks
+            cannons.forEach(cannon => {
+                cannon.collisionPoints.forEach(point => {
+                    drawCollisionMarker(point.x, point.y);
+                });
+            });
+            
+            // Draw all cannons
+            cannons.forEach(cannon => {
+                drawCannon(cannon);
+            });
+        }
+        
+        function drawCollisionMarker(x, y) {
+            const size = 20;
+            ctx.strokeStyle = 'rgba(255, 50, 50, 0.9)';
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            
+            // Draw X
+            ctx.beginPath();
+            ctx.moveTo(x - size, y - size);
+            ctx.lineTo(x + size, y + size);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(x + size, y - size);
+            ctx.lineTo(x - size, y + size);
+            ctx.stroke();
+            
+            // Draw circle around X
+            ctx.strokeStyle = 'rgba(255, 200, 0, 0.7)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(x, y, size * 1.5, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        
+        function drawPredictedCollisionMarker(x, y) {
+            const size = 35;  // MUCH LARGER
+            const pulse = Math.sin(Date.now() / 200) * 0.3 + 0.7;  // Pulsing effect
+            
+            // Large glowing background
+            ctx.fillStyle = `rgba(255, 100, 0, ${0.3 * pulse})`;
+            ctx.beginPath();
+            ctx.arc(x, y, size * 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Very visible X
+            ctx.strokeStyle = `rgba(255, 150, 0, ${0.9 * pulse})`;
+            ctx.lineWidth = 6;
+            ctx.lineCap = 'round';
+            ctx.shadowColor = 'rgba(255, 150, 0, 0.8)';
+            ctx.shadowBlur = 15;
+            
+            // Draw X
+            ctx.beginPath();
+            ctx.moveTo(x - size, y - size);
+            ctx.lineTo(x + size, y + size);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(x + size, y - size);
+            ctx.lineTo(x - size, y + size);
+            ctx.stroke();
+            
+            ctx.shadowBlur = 0;
+            
+            // Draw circle around X
+            ctx.strokeStyle = `rgba(255, 255, 0, ${0.8 * pulse})`;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(x, y, size * 1.8, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // WARNING text
+            ctx.fillStyle = `rgba(255, 255, 255, ${0.9 * pulse})`;
+            ctx.font = '12px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('COLLISION', x, y - size * 2.5);
+        }
+        
+        function drawWalls() {
+            // Default walls
+            ctx.strokeStyle = '#3a3a3a';
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            
+            for (let i = 0; i < DEFAULT_WALLS.length; i++) {
+                const wall = WALLS[i];
+                ctx.beginPath();
+                ctx.moveTo(wall.x1, wall.y1);
+                ctx.lineTo(wall.x2, wall.y2);
+                ctx.stroke();
+            }
+            
+            // Custom walls (brighter)
+            ctx.strokeStyle = '#5a5a5a';
+            for (let i = DEFAULT_WALLS.length; i < WALLS.length; i++) {
+                const wall = WALLS[i];
+                ctx.beginPath();
+                ctx.moveTo(wall.x1, wall.y1);
+                ctx.lineTo(wall.x2, wall.y2);
+                ctx.stroke();
+            }
+        }
+        
+        function drawCannon(cannon) {
+            const endX = cannon.x + Math.cos(cannon.angle) * cannon.length;
+            const endY = cannon.y + Math.sin(cannon.angle) * cannon.length;
+            
+            ctx.fillStyle = `rgba(${cannon.color[0]}, ${cannon.color[1]}, ${cannon.color[2]}, 0.7)`;
+            ctx.beginPath();
+            ctx.arc(cannon.x, cannon.y, 8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = `rgba(${cannon.color[0]}, ${cannon.color[1]}, ${cannon.color[2]}, 0.6)`;
+            ctx.lineWidth = 5;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(cannon.x, cannon.y);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+        }
+        
+        function drawProjection(cannon) {
+            const timeline = cannon.projectedTimeline;
+            
+            // Draw EVERY position - no skipping - creates continuous worm
+            for (let i = 0; i < timeline.length; i += CONFIG.trailSkipRate) {
+                const pos = timeline[i];
+                const progress = i / timeline.length;
+                
+                // TIME VISUALIZATION: Fades proportionally with time passed (older = more transparent)
+                const opacity = CONFIG.projectionOpacity * progress;
+                
+                // Add subtle brightness increase with time
+                const brightnessBoost = 1.0 + (progress * 0.5);
+                const r = Math.min(255, cannon.color[0] * brightnessBoost);
+                const g = Math.min(255, cannon.color[1] * brightnessBoost);
+                const b = Math.min(255, cannon.color[2] * brightnessBoost);
+                
+                ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, CONFIG.projectionDotRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // Draw animated time markers that travel along the path
+            const timeMarkerCount = 3;
+            const animSpeed = 0.001;
+            const timeOffset = (Date.now() * animSpeed) % 1;
+            
+            for (let m = 0; m < timeMarkerCount; m++) {
+                const markerProgress = ((timeOffset + (m / timeMarkerCount)) % 1);
+                const markerIndex = Math.floor(markerProgress * timeline.length);
+                
+                if (markerIndex < timeline.length) {
+                    const markerPos = timeline[markerIndex];
+                    
+                    // Glowing time marker
+                    const pulse = Math.sin(Date.now() / 150 + m * 2) * 0.3 + 0.7;
+                    ctx.fillStyle = `rgba(255, 255, 255, ${0.8 * pulse})`;
+                    ctx.beginPath();
+                    ctx.arc(markerPos.x, markerPos.y, CONFIG.ballRadius * 0.6, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Ring around marker
+                    ctx.strokeStyle = `rgba(${cannon.color[0]}, ${cannon.color[1]}, ${cannon.color[2]}, ${0.6 * pulse})`;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(markerPos.x, markerPos.y, CONFIG.ballRadius * 1.2, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
+        }
+        
+        function drawTimeHistory(cannon) {
+            const history = cannon.timeHistory;
+            
+            let skip = 1;
+            if (CONFIG.lodEnabled && cannon.simulationComplete) {
+                if (cannon.shotAge > 300) {
+                    skip = CONFIG.lodOldSkip;
+                } else if (cannon.shotAge > 100) {
+                    skip = CONFIG.lodDistantSkip;
+                }
+            }
+            
+            for (let i = 0; i < history.length; i += skip) {
+                const pos = history[i];
+                const progress = i / history.length;
+                
+                // Fades proportionally with time passed (older = more transparent)
+                const opacity = CONFIG.trailOpacityBase * progress;
+                
+                ctx.fillStyle = `rgba(${cannon.color[0]}, ${cannon.color[1]}, ${cannon.color[2]}, ${opacity})`;
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, CONFIG.trailDotRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        function drawFinalBall(cannon) {
+            const gradient = ctx.createRadialGradient(
+                cannon.finalX, cannon.finalY, 0,
+                cannon.finalX, cannon.finalY, CONFIG.ballRadius * 2
+            );
+            gradient.addColorStop(0, `rgba(${cannon.color[0]}, ${cannon.color[1]}, ${cannon.color[2]}, 0.6)`);
+            gradient.addColorStop(1, `rgba(${cannon.color[0]}, ${cannon.color[1]}, ${cannon.color[2]}, 0)`);
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(cannon.finalX, cannon.finalY, CONFIG.ballRadius * 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = `rgb(${cannon.color[0]}, ${cannon.color[1]}, ${cannon.color[2]})`;
+            ctx.beginPath();
+            ctx.arc(cannon.finalX, cannon.finalY, CONFIG.ballRadius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        function drawLiveBall(cannon) {
+            // Draw collision highlight if active
+            if (cannon.collisionHighlight > 0) {
+                const highlightIntensity = cannon.collisionHighlight / CONFIG.collisionHighlightDuration;
+                
+                // Outer explosion ring
+                ctx.strokeStyle = `rgba(255, 255, 0, ${highlightIntensity * 0.8})`;
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.arc(cannon.ballX, cannon.ballY, CONFIG.ballRadius * (2 + (1 - highlightIntensity)), 0, Math.PI * 2);
+                ctx.stroke();
+                
+                // Inner flash ring
+                ctx.strokeStyle = `rgba(255, 100, 100, ${highlightIntensity * 0.6})`;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(cannon.ballX, cannon.ballY, CONFIG.ballRadius * (1.5 + (1 - highlightIntensity) * 0.5), 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            
+            // Draw outer glow
+            const gradient = ctx.createRadialGradient(
+                cannon.ballX, cannon.ballY, 0,
+                cannon.ballX, cannon.ballY, CONFIG.ballRadius * 1.5
+            );
+            gradient.addColorStop(0, `rgba(${cannon.color[0]}, ${cannon.color[1]}, ${cannon.color[2]}, 0.8)`);
+            gradient.addColorStop(1, `rgba(${cannon.color[0]}, ${cannon.color[1]}, ${cannon.color[2]}, 0)`);
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(cannon.ballX, cannon.ballY, CONFIG.ballRadius * 1.5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw ball body
+            ctx.fillStyle = `rgb(${cannon.color[0]}, ${cannon.color[1]}, ${cannon.color[2]})`;
+            ctx.beginPath();
+            ctx.arc(cannon.ballX, cannon.ballY, CONFIG.ballRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw highlight/shine
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.beginPath();
+            ctx.arc(cannon.ballX - CONFIG.ballRadius * 0.3, cannon.ballY - CONFIG.ballRadius * 0.3, CONFIG.ballRadius * 0.3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        function drawReverseAnimation(cannon) {
+            const index = Math.floor(cannon.reverseAnimationIndex);
+            if (index < 0 || index >= cannon.timeHistory.length) return;
+            
+            const pos = cannon.timeHistory[index];
+            
+            ctx.fillStyle = 'rgba(255, 100, 255, 0.8)';
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, CONFIG.ballRadius * 1.5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(255, 150, 255, 0.4)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, CONFIG.ballRadius * 2.5, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        
+        function drawDangerZone(isLosing) {
+            const pulse = Math.sin(Date.now() / 300) * 0.2 + 0.8;
+            
+            // Red glowing danger zone
+            const opacity = isLosing ? 0.3 * pulse : 0.1;
+            ctx.fillStyle = `rgba(255, 50, 50, ${opacity})`;
+            ctx.fillRect(DANGER_ZONE.x, DANGER_ZONE.y, DANGER_ZONE.width, DANGER_ZONE.height);
+            
+            // Border
+            const borderOpacity = isLosing ? 0.8 * pulse : 0.3;
+            ctx.strokeStyle = `rgba(255, 100, 100, ${borderOpacity})`;
+            ctx.lineWidth = isLosing ? 4 : 2;
+            ctx.strokeRect(DANGER_ZONE.x, DANGER_ZONE.y, DANGER_ZONE.width, DANGER_ZONE.height);
+            
+            // Center crosshairs
+            ctx.strokeStyle = `rgba(255, 150, 150, ${borderOpacity * 0.5})`;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([10, 10]);
+            ctx.beginPath();
+            ctx.moveTo(DANGER_ZONE.centerX, DANGER_ZONE.y);
+            ctx.lineTo(DANGER_ZONE.centerX, DANGER_ZONE.y + DANGER_ZONE.height);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(DANGER_ZONE.x, DANGER_ZONE.centerY);
+            ctx.lineTo(DANGER_ZONE.x + DANGER_ZONE.width, DANGER_ZONE.centerY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+        
+        function drawGameState(isLosing) {
+            if (gameMode !== 'aim') return; // Only show in aim mode
+            
+            const hasProjections = cannons.some(c => !c.isSimulating && !c.simulationComplete && c.projectedTimeline.length > 0);
+            if (!hasProjections) return; // Only show when aiming
+            
+            const pulse = Math.sin(Date.now() / 400) * 0.2 + 0.8;
+            
+            if (isLosing) {
+                // YOU ARE LOSING - Red screen border
+                ctx.strokeStyle = `rgba(255, 0, 0, ${0.5 * pulse})`;
+                ctx.lineWidth = 20;
+                ctx.strokeRect(10, 10, CONFIG.canvasWidth - 20, CONFIG.canvasHeight - 20);
+                
+                // Text
+                ctx.fillStyle = `rgba(255, 50, 50, ${0.9 * pulse})`;
+                ctx.font = 'bold 48px monospace';
+                ctx.textAlign = 'center';
+                ctx.shadowColor = 'rgba(255, 0, 0, 0.8)';
+                ctx.shadowBlur = 20;
+                ctx.fillText('YOU ARE LOSING', DANGER_ZONE.centerX, DANGER_ZONE.y - 40);
+                ctx.shadowBlur = 0;
+            } else {
+                // YOU WIN - Green glow
+                ctx.strokeStyle = `rgba(0, 255, 100, ${0.4 * pulse})`;
+                ctx.lineWidth = 15;
+                ctx.strokeRect(10, 10, CONFIG.canvasWidth - 20, CONFIG.canvasHeight - 20);
+                
+                // Text
+                ctx.fillStyle = `rgba(100, 255, 150, ${0.9 * pulse})`;
+                ctx.font = 'bold 48px monospace';
+                ctx.textAlign = 'center';
+                ctx.shadowColor = 'rgba(0, 255, 100, 0.8)';
+                ctx.shadowBlur = 20;
+                ctx.fillText('YOU WIN!', DANGER_ZONE.centerX, DANGER_ZONE.y - 40);
+                ctx.shadowBlur = 0;
+            }
+        }
+        
+        // ============================================================================
+        // INPUT HANDLING
+        // ============================================================================
+        
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+            
+            if (gameMode === 'aim') {
+                // All cannons aim at mouse cursor simultaneously
+                cannons.forEach(cannon => {
+                    if (!cannon.isSimulating && !cannon.simulationComplete) {
+                        cannon.pointAt(mouseX, mouseY);
+                    }
+                });
+            } else if (gameMode === 'wall' && isCreatingWall) {
+                wallEndX = mouseX;
+                wallEndY = mouseY;
+            }
+        });
+        
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            if (gameMode === 'wall') {
+                wallStartX = x;
+                wallStartY = y;
+                wallEndX = x;
+                wallEndY = y;
+                isCreatingWall = true;
+            }
+        });
+        
+        canvas.addEventListener('mouseup', (e) => {
+            if (gameMode === 'aim') {
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                // Fire the cannon closest to click
+                let closest = null;
+                let minDist = 50; // Max distance to click
+                
+                cannons.forEach(cannon => {
+                    const dist = Math.sqrt((cannon.x - x) ** 2 + (cannon.y - y) ** 2);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        closest = cannon;
+                    }
+                });
+                
+                if (closest && !closest.isSimulating && !closest.simulationComplete) {
+                    closest.fire();
+                } else if (closest && closest.simulationComplete) {
+                    closest.reset();
+                }
+            } else if (gameMode === 'wall' && isCreatingWall) {
+                const rect = canvas.getBoundingClientRect();
+                wallEndX = e.clientX - rect.left;
+                wallEndY = e.clientY - rect.top;
+                
+                // Create wall if it's long enough
+                const length = Math.sqrt((wallEndX - wallStartX) ** 2 + (wallEndY - wallStartY) ** 2);
+                if (length > 10) {
+                    const newWall = {
+                        x1: wallStartX,
+                        y1: wallStartY,
+                        x2: wallEndX,
+                        y2: wallEndY
+                    };
+                    WALLS.push(newWall);
+                    customWalls.push(newWall);
+                    updateUI();
+                }
+                
+                isCreatingWall = false;
+                wallStartX = null;
+                wallStartY = null;
+            }
+        });
+        
+        document.addEventListener('keydown', (e) => {
+            if (e.key === ' ') {
+                e.preventDefault();
+                fireAllCannons();
+            } else if (e.key === 'Escape') {
+                if (isCreatingWall) {
+                    isCreatingWall = false;
+                    wallStartX = null;
+                    wallStartY = null;
+                }
+            }
+        });
+        
+        // Button controls
+        document.getElementById('toggleMode').addEventListener('click', toggleMode);
+        document.getElementById('fireAll').addEventListener('click', fireAllCannons);
+        document.getElementById('clearAll').addEventListener('click', clearAllShots);
+        document.getElementById('clearWalls').addEventListener('click', clearCustomWalls);
+        document.getElementById('resetAll').addEventListener('click', resetEverything);
+        
+        // ============================================================================
+        // UI UPDATES
+        // ============================================================================
+        
+        function updateUI() {
+            document.getElementById('cannonCount').textContent = cannons.length;
+            document.getElementById('wallCount').textContent = WALLS.length;
+            
+            const countEl = document.getElementById('cannonCount');
+            countEl.className = cannons.length <= 15 ? 'stat-good' : cannons.length <= 20 ? 'stat-warning' : 'stat-bad';
+        }
+        
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            const elapsed = now - lastFPSUpdate;
+            
+            if (elapsed >= 1000) {
+                currentFPS = Math.round((frameCount * 1000) / elapsed);
+                document.getElementById('fps').textContent = currentFPS;
+                
+                const fpsEl = document.getElementById('fps');
+                fpsEl.className = currentFPS >= 55 ? 'stat-good' : currentFPS >= 40 ? 'stat-warning' : 'stat-bad';
+                
+                frameCount = 0;
+                lastFPSUpdate = now;
+            }
+            
+            const totalPoints = cannons.reduce((sum, c) => sum + c.timeHistory.length, 0);
+            document.getElementById('pointCount').textContent = totalPoints.toLocaleString();
+        }
+        
+        // ============================================================================
+        // GAME LOOP
+        // ============================================================================
+        
+        function gameLoop() {
+            updateCannons();
+            render();
+            updateFPS();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // ============================================================================
+        // INITIALIZATION
+        // ============================================================================
+        
+        initializeAllCannons();
+        updateUI();
+        updateModeUI();
+        gameLoop();
+        
+    </script>
+</body>
+</html>

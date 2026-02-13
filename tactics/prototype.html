@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>All Time At Once — Tactics</title>
+    <style>
+        body {
+            margin: 0;
+            background: #0a0a0a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: 'Courier New', monospace;
+            color: #fff;
+            overflow: hidden;
+        }
+        canvas { display: block; cursor: crosshair; }
+        #ui {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0,0,0,0.75);
+            border-top: 1px solid #333;
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            padding: 8px 16px;
+            font-size: 12px;
+            color: #888;
+        }
+        .btn {
+            background: #2a2a2a;
+            color: #4a9eff;
+            border: 1px solid #444;
+            padding: 5px 12px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 12px;
+        }
+        .btn:hover { background: #3a3a3a; border-color: #4a9eff; }
+        .btn.active { background: #1a3a5a; border-color: #4a9eff; }
+        .btn.cav { color: #ffb030; }
+        .btn.cav.active { background: #3a2a0a; border-color: #ffb030; }
+        #status { flex: 1; text-align: center; font-size: 13px; }
+    </style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="ui">
+    <button class="btn active" id="btnInfantry">[I] Infantry</button>
+    <button class="btn cav" id="btnCavalry">[C] Cavalry</button>
+    <span id="status">Player 1 — place a unit in the blue deployment zone</span>
+    <button class="btn" id="btnReset">Reset</button>
+    <span style="color:#444">Scroll: zoom | Right-drag: pan | WASD: pan</span>
+</div>
+<script>
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const GRID_COLS    = 120;
+const GRID_ROWS    = 88;
+const TURNS        = 5;
+const DEPLOY_ROWS  = 18;
+const DEPLOY_C_MIN = 18;
+const DEPLOY_C_MAX = 101; // 120 - 1 - 18
+const P1_ROW_MIN   = GRID_ROWS - DEPLOY_ROWS;  // 70 — bottom of grid
+const P1_ROW_MAX   = GRID_ROWS - 1;            // 87
+const P2_ROW_MIN   = 0;                        // top of grid
+const P2_ROW_MAX   = DEPLOY_ROWS - 1;          // 17
+const OBJ_RADIUS   = 2;
+
+const OBJECTIVES = [
+    { col: 60, row: 43 },
+    { col: 30, row: 38 },
+    { col: 90, row: 38 },
+];
+
+const UNIT_DEFS = {
+    infantry: {
+        name: 'Infantry', models: 10, move: 10,
+        attacks: 2, accuracy: 3, wound: 3,
+        rend: 1, armor: 4, health: 2, damage: 1,
+        color: [60, 160, 255], drawRadius: 7,
+    },
+    cavalry: {
+        name: 'Cavalry', models: 5, move: 18,
+        attacks: 2, accuracy: 4, wound: 3,
+        rend: 2, armor: 3, health: 5, damage: 2,
+        color: [255, 160, 50], drawRadius: 9,
+    },
+};
+
+// ============================================================================
+// CANVAS SETUP
+// ============================================================================
+
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+const SQRT3  = Math.sqrt(3);
+
+function resizeCanvas() {
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight - 42;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// ============================================================================
+// VIEW STATE (pan / zoom)
+// ============================================================================
+
+let hexSize = 8;
+let panX = 0;
+let panY = 0;
+
+function initPan() {
+    // Center map horizontally, show P1 deployment zone near bottom
+    const mapW = GRID_COLS * SQRT3 * hexSize;
+    panX = (canvas.width - mapW) / 2;
+    // Row 78 (middle of P1 deploy zone) should sit at ~80% down the canvas
+    const rowMidY = hexSize * 1.5 * 78;
+    panY = canvas.height * 0.8 - rowMidY;
+}
+
+// ============================================================================
+// HEX MATH — pointy-top, odd-r offset
+// ============================================================================
+
+function hexToPixel(col, row) {
+    return {
+        x: panX + hexSize * SQRT3 * (col + 0.5 * (row & 1)),
+        y: panY + hexSize * 1.5  * row,
+    };
+}
+
+function pixelToHex(px, py) {
+    const x = px - panX;
+    const y = py - panY;
+    const fq = (SQRT3/3 * x - 1/3 * y) / hexSize;
+    const fr = (2/3 * y) / hexSize;
+    return axialRoundOffset(fq, fr);
+}
+
+function axialRoundOffset(fq, fr) {
+    let cx = fq, cz = fr, cy = -cx - cz;
+    let rx = Math.round(cx), ry = Math.round(cy), rz = Math.round(cz);
+    const dx = Math.abs(rx-cx), dy = Math.abs(ry-cy), dz = Math.abs(rz-cz);
+    if      (dx > dy && dx > dz) rx = -ry - rz;
+    else if (dy > dz)            ry = -rx - rz;
+    else                         rz = -rx - ry;
+    return axialToOffset(rx, rz);
+}
+
+function offsetToAxial(col, row) {
+    return { q: col - (row - (row & 1)) / 2, r: row };
+}
+
+function axialToOffset(q, r) {
+    return { col: q + (r - (r & 1)) / 2, row: r };
+}
+
+function hexDist(c1, r1, c2, r2) {
+    const a = offsetToAxial(c1, r1), b = offsetToAxial(c2, r2);
+    return (Math.abs(a.q-b.q) + Math.abs(a.q+a.r - b.q-b.r) + Math.abs(a.r-b.r)) / 2;
+}
+
+const AXIAL_DIRS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+
+function hexNeighbors(col, row) {
+    const { q, r } = offsetToAxial(col, row);
+    return AXIAL_DIRS
+        .map(([dq, dr]) => axialToOffset(q+dq, r+dr))
+        .filter(h => h.col >= 0 && h.col < GRID_COLS && h.row >= 0 && h.row < GRID_ROWS);
+}
+
+function hexKey(col, row) { return col * 1000 + row; }
+
+// ============================================================================
+// A* PATHFINDING
+// ============================================================================
+
+function findPath(sc, sr, gc, gr, blockedKeys) {
+    if (sc === gc && sr === gr) return [];
+    const goalK = hexKey(gc, gr);
+
+    // Simple priority queue via sorted array (good enough for this grid size)
+    const open = [{ col: sc, row: sr, g: 0, f: hexDist(sc, sr, gc, gr), parent: null }];
+    const gScore = new Map();
+    gScore.set(hexKey(sc, sr), 0);
+    const closed = new Set();
+
+    let iter = 0;
+    while (open.length > 0 && iter++ < 8000) {
+        open.sort((a, b) => a.f - b.f);
+        const cur = open.shift();
+        const ck = hexKey(cur.col, cur.row);
+
+        if (ck === goalK) {
+            const path = [];
+            let n = cur;
+            while (n.parent) { path.unshift({ col: n.col, row: n.row }); n = n.parent; }
+            return path;
+        }
+
+        closed.add(ck);
+
+        for (const nb of hexNeighbors(cur.col, cur.row)) {
+            const nk = hexKey(nb.col, nb.row);
+            if (closed.has(nk)) continue;
+            if (blockedKeys && blockedKeys.has(nk)) continue;
+            const g = cur.g + 1;
+            if (g < (gScore.get(nk) ?? Infinity)) {
+                gScore.set(nk, g);
+                open.push({ col: nb.col, row: nb.row, g, f: g + hexDist(nb.col, nb.row, gc, gr), parent: cur });
+            }
+        }
+    }
+    return [];
+}
+
+// ============================================================================
+// SEEDED RNG + DICE
+// ============================================================================
+
+function makePRNG(seed) {
+    let s = seed | 0;
+    return () => {
+        s = s + 0x6D2B79F5 | 0;
+        let t = Math.imul(s ^ s >>> 15, 1 | s);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+}
+
+function d6(rng) { return Math.floor(rng() * 6) + 1; }
+
+// ============================================================================
+// COMBAT RESOLUTION
+// ============================================================================
+
+function resolveCombat(atk, def, rng) {
+    // atk/def: { def (unit def), modelsAlive, healthRemaining[] }
+    if (atk.modelsAlive <= 0 || def.modelsAlive <= 0) return;
+
+    const ad = atk.def;
+    let hits = 0;
+    for (let i = 0; i < atk.modelsAlive * ad.attacks; i++) {
+        if (d6(rng) >= ad.accuracy) hits++;
+    }
+    let wounds = 0;
+    for (let i = 0; i < hits; i++) {
+        if (d6(rng) >= ad.wound) wounds++;
+    }
+    const modArmor = Math.max(2, def.def.armor - ad.rend);
+    let failedSaves = 0;
+    for (let i = 0; i < wounds; i++) {
+        if (d6(rng) < modArmor) failedSaves++;
+    }
+    // Apply damage, carry over between models
+    let pool = failedSaves * ad.damage;
+    while (pool > 0 && def.modelsAlive > 0) {
+        const idx = def.modelsAlive - 1;
+        const take = Math.min(pool, def.healthRemaining[idx]);
+        def.healthRemaining[idx] -= take;
+        pool -= take;
+        if (def.healthRemaining[idx] <= 0) def.modelsAlive--;
+    }
+}
+
+// ============================================================================
+// BATTLE SIMULATION
+// ============================================================================
+
+function simulateBattle(units, seed) {
+    const rng = makePRNG(seed);
+
+    // Build mutable state for each unit
+    const states = units.map(u => ({
+        def:            u.def,
+        player:         u.player,
+        col:            u.col,
+        row:            u.row,
+        modelsAlive:    u.def.models,
+        healthRemaining: new Array(u.def.models).fill(u.def.health),
+        inCombat:       false,
+        combatWith:     null,
+        eliminated:     false,
+    }));
+
+    // timelines[i] = array of { col, row, modelsAlive }
+    const timelines = states.map(s => [{ col: s.col, row: s.row, modelsAlive: s.modelsAlive }]);
+
+    for (let turn = 1; turn <= TURNS; turn++) {
+
+        // --- MOVEMENT PHASE ---
+        for (let ui = 0; ui < states.length; ui++) {
+            const unit = states[ui];
+            if (unit.eliminated || unit.inCombat) continue;
+
+            const target = getTarget(unit, states, ui);
+            if (!target) continue;
+
+            // Blocked hexes: other non-eliminated units (never block the goal itself)
+            const blocked = new Set();
+            states.forEach((s, j) => {
+                if (j !== ui && !s.eliminated &&
+                    !(s.col === target.col && s.row === target.row)) {
+                    blocked.add(hexKey(s.col, s.row));
+                }
+            });
+
+            const path = findPath(unit.col, unit.row, target.col, target.row, blocked);
+            const steps = Math.min(unit.def.move, path.length);
+
+            for (let step = 0; step < steps; step++) {
+                unit.col = path[step].col;
+                unit.row = path[step].row;
+                timelines[ui].push({ col: unit.col, row: unit.row, modelsAlive: unit.modelsAlive });
+
+                // Check for adjacent enemy to enter combat
+                const enemyIdx = getAdjacentEnemy(unit, states, ui);
+                if (enemyIdx !== null) {
+                    unit.inCombat    = true;
+                    unit.combatWith  = enemyIdx;
+                    if (!states[enemyIdx].inCombat) {
+                        states[enemyIdx].inCombat   = true;
+                        states[enemyIdx].combatWith = ui;
+                    }
+                    break;
+                }
+            }
+        }
+
+        // --- COMBAT PHASE (simultaneous) ---
+        const resolved = new Set();
+        for (let ui = 0; ui < states.length; ui++) {
+            const unit = states[ui];
+            if (!unit.inCombat || unit.eliminated || unit.combatWith === null) continue;
+            const ei = unit.combatWith;
+            const pairKey = Math.min(ui, ei) * 10000 + Math.max(ui, ei);
+            if (resolved.has(pairKey)) continue;
+            resolved.add(pairKey);
+
+            const enemy = states[ei];
+            // Snapshot health before mutual attack
+            const atkSnap = { def: unit.def,  modelsAlive: unit.modelsAlive,  healthRemaining: [...unit.healthRemaining]  };
+            const defSnap = { def: enemy.def, modelsAlive: enemy.modelsAlive, healthRemaining: [...enemy.healthRemaining] };
+
+            resolveCombat(atkSnap, enemy, rng);
+            resolveCombat(defSnap, unit,  rng);
+        }
+
+        // --- ELIMINATION CHECK ---
+        for (let ui = 0; ui < states.length; ui++) {
+            const unit = states[ui];
+            if (!unit.eliminated && unit.modelsAlive <= 0) {
+                unit.eliminated = true;
+                timelines[ui].push({ col: unit.col, row: unit.row, modelsAlive: 0, eliminated: true });
+            }
+            // Free from combat if partner gone
+            if (unit.inCombat && unit.combatWith !== null && states[unit.combatWith].eliminated) {
+                unit.inCombat   = false;
+                unit.combatWith = null;
+            }
+        }
+    }
+
+    return { timelines, states };
+}
+
+function getTarget(unit, states, selfIdx) {
+    // Nearest objective
+    let best = null, bestD = Infinity;
+    for (const obj of OBJECTIVES) {
+        const d = hexDist(unit.col, unit.row, obj.col, obj.row);
+        if (d < bestD) { bestD = d; best = { col: obj.col, row: obj.row }; }
+    }
+    if (best) return best;
+
+    // Fallback: nearest enemy
+    for (const s of states) {
+        if (s.player === unit.player || s.eliminated) continue;
+        const d = hexDist(unit.col, unit.row, s.col, s.row);
+        if (d < bestD) { bestD = d; best = { col: s.col, row: s.row }; }
+    }
+    return best;
+}
+
+function getAdjacentEnemy(unit, states, selfIdx) {
+    const neighbors = hexNeighbors(unit.col, unit.row);
+    for (let i = 0; i < states.length; i++) {
+        if (i === selfIdx || states[i].player === unit.player || states[i].eliminated) continue;
+        if (neighbors.some(n => n.col === states[i].col && n.row === states[i].row)) return i;
+    }
+    return null;
+}
+
+// ============================================================================
+// GAME STATE
+// ============================================================================
+
+let placedUnits   = [];
+let simResult     = null;
+let previewResult = null;
+let hoverHex      = null;
+let selectedType  = 'infantry';
+let currentPlayer = 1;
+let seed          = Date.now();
+
+// Throttle preview computation
+let previewThrottle = null;
+
+function isInDeployZone(col, row, player) {
+    if (col < DEPLOY_C_MIN || col > DEPLOY_C_MAX) return false;
+    return player === 1
+        ? (row >= P1_ROW_MIN && row <= P1_ROW_MAX)
+        : (row >= P2_ROW_MIN && row <= P2_ROW_MAX);
+}
+
+function placeUnit(col, row) {
+    if (!isInDeployZone(col, row, currentPlayer)) return;
+    const def = UNIT_DEFS[selectedType];
+    placedUnits.push({ def, col, row, player: currentPlayer });
+    simResult     = simulateBattle(placedUnits, seed);
+    previewResult = null;
+    currentPlayer = currentPlayer === 1 ? 2 : 1;
+    updateStatus();
+}
+
+function updateStatus() {
+    const p1 = placedUnits.filter(u => u.player === 1).length;
+    const p2 = placedUnits.filter(u => u.player === 2).length;
+    const zone = currentPlayer === 1 ? 'blue (bottom)' : 'red (top)';
+    document.getElementById('status').textContent =
+        `Player ${currentPlayer} deploying [${currentPlayer===1?p1:p2}/8] — click in the ${zone} zone`;
+}
+
+// ============================================================================
+// RENDERING
+// ============================================================================
+
+function hexCorners(cx, cy) {
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+        const a = Math.PI / 3 * i - Math.PI / 6;
+        pts.push([cx + hexSize * Math.cos(a), cy + hexSize * Math.sin(a)]);
+    }
+    return pts;
+}
+
+function drawHexFill(col, row, fill, stroke, lw) {
+    const { x, y } = hexToPixel(col, row);
+    const pts = hexCorners(x, y);
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < 6; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    if (fill)   { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw ?? 0.5; ctx.stroke(); }
+}
+
+function render() {
+    ctx.fillStyle = '#0d0d0d';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const t = Date.now();
+
+    // Compute visible hex bounds to skip off-screen draws
+    const pad = 2;
+    const tlHex = pixelToHex(-hexSize*2,               -hexSize*2);
+    const brHex = pixelToHex(canvas.width + hexSize*2,  canvas.height + hexSize*2);
+    const rMin = Math.max(0,          tlHex.row - pad);
+    const rMax = Math.min(GRID_ROWS-1, brHex.row + pad);
+    const cMin = Math.max(0,          tlHex.col - pad);
+    const cMax = Math.min(GRID_COLS-1, brHex.col + pad);
+
+    // --- GRID ---
+    for (let row = rMin; row <= rMax; row++) {
+        for (let col = cMin; col <= cMax; col++) {
+            let fill   = null;
+            let stroke = '#1c1c1c';
+            let lw     = 0.4;
+
+            // Deployment zones
+            if (col >= DEPLOY_C_MIN && col <= DEPLOY_C_MAX) {
+                if (row >= P1_ROW_MIN && row <= P1_ROW_MAX) fill = 'rgba(50,100,255,0.07)';
+                else if (row >= P2_ROW_MIN && row <= P2_ROW_MAX) fill = 'rgba(255,70,70,0.07)';
+            }
+
+            // Objectives (glow area)
+            for (const obj of OBJECTIVES) {
+                const d = hexDist(col, row, obj.col, obj.row);
+                if (d <= OBJ_RADIUS) {
+                    const pulse = Math.sin(t / 900) * 0.05 + 0.1;
+                    fill   = `rgba(255,200,0,${pulse})`;
+                    stroke = 'rgba(200,160,0,0.25)';
+                    break;
+                }
+            }
+
+            // Hover highlight
+            if (hoverHex && hoverHex.col === col && hoverHex.row === row) {
+                fill = isInDeployZone(col, row, currentPlayer)
+                    ? 'rgba(100,220,100,0.25)'
+                    : 'rgba(200,100,100,0.15)';
+                stroke = '#444';
+                lw = 0.8;
+            }
+
+            drawHexFill(col, row, fill, stroke, lw);
+        }
+    }
+
+    // --- TRAILS (placed units simulation) ---
+    if (simResult) {
+        for (let ui = 0; ui < placedUnits.length; ui++) {
+            const u = placedUnits[ui];
+            const tl = simResult.timelines[ui];
+            const [r, g, b] = u.def.color;
+            const len = tl.length;
+            for (let i = 0; i < len; i++) {
+                const pos = tl[i];
+                const progress = len <= 1 ? 1 : i / (len - 1);
+                const opacity = 0.18 + progress * 0.65;
+                const frac = pos.modelsAlive / u.def.models;
+                const rad  = u.def.drawRadius * (0.35 + 0.65 * frac);
+                const { x, y } = hexToPixel(pos.col, pos.row);
+                ctx.fillStyle = `rgba(${r},${g},${b},${opacity})`;
+                ctx.beginPath();
+                ctx.arc(x, y, rad, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+    }
+
+    // --- PREVIEW TRAIL (unit being aimed) ---
+    if (previewResult && hoverHex) {
+        const def = UNIT_DEFS[selectedType];
+        const [r, g, b] = def.color;
+        const tl = previewResult.timelines[previewResult.timelines.length - 1];
+        const len = tl.length;
+        for (let i = 0; i < len; i++) {
+            const pos = tl[i];
+            const progress = len <= 1 ? 1 : i / (len - 1);
+            const opacity  = (0.15 + progress * 0.55) * 0.75;
+            const frac = pos.modelsAlive / def.models;
+            const rad  = def.drawRadius * (0.3 + 0.6 * frac);
+            const { x, y } = hexToPixel(pos.col, pos.row);
+            ctx.fillStyle = `rgba(${r},${g},${b},${opacity})`;
+            ctx.beginPath();
+            ctx.arc(x, y, rad, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    // --- UNIT MARKERS (final/current position) ---
+    const drawStates = simResult ? simResult.states : null;
+    for (let ui = 0; ui < placedUnits.length; ui++) {
+        const u = placedUnits[ui];
+        const [r, g, b] = u.def.color;
+        const state = drawStates ? drawStates[ui] : null;
+        if (state && state.modelsAlive <= 0) continue;
+
+        const col = state ? state.col : u.col;
+        const row = state ? state.row : u.row;
+        const alive = state ? state.modelsAlive : u.def.models;
+        const { x, y } = hexToPixel(col, row);
+        const rad = u.def.drawRadius;
+
+        // Glow
+        const grad = ctx.createRadialGradient(x, y, 0, x, y, rad * 2);
+        grad.addColorStop(0, `rgba(${r},${g},${b},0.5)`);
+        grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(x, y, rad * 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Body
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.beginPath();
+        ctx.arc(x, y, rad, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Model count
+        ctx.fillStyle = '#000';
+        ctx.font = `bold ${Math.max(6, hexSize - 1)}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(alive, x, y);
+    }
+
+    // --- OBJECTIVES (center markers) ---
+    for (let i = 0; i < OBJECTIVES.length; i++) {
+        const obj = OBJECTIVES[i];
+        const { x, y } = hexToPixel(obj.col, obj.row);
+        const pulse = Math.sin(t / 500 + i * 2) * 0.25 + 0.75;
+        ctx.fillStyle = `rgba(255,200,0,${pulse * 0.9})`;
+        ctx.beginPath();
+        ctx.arc(x, y, hexSize * 0.75, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,200,0.8)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = '#000';
+        ctx.font = `bold ${hexSize}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(i + 1, x, y);
+    }
+
+    // --- HUD OVERLAY ---
+    drawHUD();
+
+    requestAnimationFrame(render);
+}
+
+function drawHUD() {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 0, canvas.width, 34);
+
+    const p1 = placedUnits.filter(u => u.player === 1).length;
+    const p2 = placedUnits.filter(u => u.player === 2).length;
+
+    ctx.font = '12px Courier New';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+
+    ctx.fillStyle = currentPlayer === 1 ? '#4a9eff' : '#3a5a7f';
+    ctx.fillText(`▶ P1  ${p1}/8 units`, 12, 17);
+
+    ctx.fillStyle = '#444';
+    ctx.fillText('  |  ', 110, 17);
+
+    ctx.fillStyle = currentPlayer === 2 ? '#ff6060' : '#7f3a3a';
+    ctx.fillText(`P2  ${p2}/8 units ◀`, 148, 17);
+
+    ctx.fillStyle = '#555';
+    ctx.textAlign = 'right';
+    ctx.fillText(`seed ${seed}`, canvas.width - 12, 17);
+
+    if (hoverHex) {
+        const inZone = isInDeployZone(hoverHex.col, hoverHex.row, currentPlayer);
+        ctx.fillStyle = inZone ? '#4a9eff' : '#555';
+        ctx.fillText(`(${hoverHex.col}, ${hoverHex.row})`, canvas.width - 100, 17);
+    }
+}
+
+// ============================================================================
+// INPUT
+// ============================================================================
+
+let isPanning = false, panAnchorX, panAnchorY, panStartX, panStartY;
+
+canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    if (isPanning) {
+        panX = panStartX + (mx - panAnchorX);
+        panY = panStartY + (my - panAnchorY);
+        hoverHex = null;
+        return;
+    }
+
+    const hex = pixelToHex(mx, my);
+    if (hex.col < 0 || hex.col >= GRID_COLS || hex.row < 0 || hex.row >= GRID_ROWS) {
+        hoverHex = null; previewResult = null; return;
+    }
+    hoverHex = hex;
+
+    // Throttled preview
+    if (isInDeployZone(hex.col, hex.row, currentPlayer)) {
+        clearTimeout(previewThrottle);
+        previewThrottle = setTimeout(() => {
+            const def = UNIT_DEFS[selectedType];
+            const preview = [...placedUnits, { def, col: hex.col, row: hex.row, player: currentPlayer }];
+            previewResult = simulateBattle(preview, seed);
+        }, 30);
+    } else {
+        previewResult = null;
+    }
+});
+
+canvas.addEventListener('mousedown', e => {
+    if (e.button === 2 || e.button === 1) {
+        isPanning = true;
+        const rect = canvas.getBoundingClientRect();
+        panAnchorX = e.clientX - rect.left;
+        panAnchorY = e.clientY - rect.top;
+        panStartX  = panX;
+        panStartY  = panY;
+        e.preventDefault();
+    }
+});
+
+canvas.addEventListener('mouseup', e => {
+    if (e.button === 2 || e.button === 1) {
+        isPanning = false;
+        return;
+    }
+    if (e.button === 0 && !isPanning && hoverHex) {
+        placeUnit(hoverHex.col, hoverHex.row);
+    }
+});
+
+canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const factor  = e.deltaY < 0 ? 1.12 : 0.89;
+    const newSize = Math.max(3, Math.min(28, hexSize * factor));
+    panX = mx - (mx - panX) * (newSize / hexSize);
+    panY = my - (my - panY) * (newSize / hexSize);
+    hexSize = newSize;
+}, { passive: false });
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+document.addEventListener('keydown', e => {
+    const spd = 60;
+    if (e.key === 'ArrowLeft'  || e.key === 'a') panX += spd;
+    if (e.key === 'ArrowRight' || e.key === 'd') panX -= spd;
+    if (e.key === 'ArrowUp'    || e.key === 'w') panY += spd;
+    if (e.key === 'ArrowDown'  || e.key === 's') panY -= spd;
+    if (e.key === 'i' || e.key === 'I') setType('infantry');
+    if (e.key === 'c' || e.key === 'C') setType('cavalry');
+});
+
+// Buttons
+document.getElementById('btnInfantry').addEventListener('click', () => setType('infantry'));
+document.getElementById('btnCavalry').addEventListener('click',  () => setType('cavalry'));
+document.getElementById('btnReset').addEventListener('click', () => {
+    placedUnits = []; simResult = null; previewResult = null;
+    currentPlayer = 1; seed = Date.now();
+    updateStatus();
+});
+
+function setType(type) {
+    selectedType = type;
+    document.getElementById('btnInfantry').classList.toggle('active', type === 'infantry');
+    document.getElementById('btnCavalry').classList.toggle('active', type === 'cavalry');
+}
+
+// ============================================================================
+// INIT
+// ============================================================================
+
+initPan();
+updateStatus();
+render();
+
+</script>
+</body>
+</html>
