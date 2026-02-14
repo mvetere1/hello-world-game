@@ -15,11 +15,14 @@ See `tactics-godot/CLAUDE.md` for all Godot-specific rules.
 ## Game design summary
 - Turn-based tactics, Warhammer-style combat
 - Flat-top hex grid, odd-q offset coordinates
-- 3 objectives in center, 12 turns, deployment zones top/bottom
+- 3 objectives in center, 10 turns, deployment zones top/bottom
+- 8 units per side, free pick from Infantry/Cavalry
 - Unit types: Infantry (10 models, move 6) and Cavalry (5 models, move 10)
 - Full combat: hit roll → wound roll → armor save (with rend) → damage
+- VP scoring: 5 VP per objective held per turn (persistent control)
 - Visual language: "all time at once" — ghost trails show full battle history simultaneously
 - Full butterfly effect: entire simulation reruns on every unit placement
+- UI: scoreboard, unit fate chart, combat log, replay mode
 
 ## Workflow rules
 - ALWAYS run `run_tests.ps1` after editing any .gd file before considering work done

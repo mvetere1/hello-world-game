@@ -76,12 +76,21 @@ This runs:
 ## Game phases — UPDATED
 ```
 DEPLOY  → alternating P1/P2 placement; looping animation runs the entire time
-DONE    → all units placed; animation loops; result HUD shown
+DONE    → all units placed; animation loops; result HUD shown; REPLAY button available
 ```
 NO separate BATTLE phase. Animation is always running.
 
+## Replay mode
+- Entered via REPLAY button (shown when Phase.DONE)
+- Clean turn-by-turn view: no ghost trails, no path lines
+- Shows unit positions and model counts from per-turn snapshots
+- Objective control updated from `obj_ctrl_history`
+- Navigation: Left/Right arrows, Escape to exit
+- Animation frozen during replay (`_process` returns early)
+- Turn pips at bottom, VP score in HUD
+
 ## Animation behavior — CONFIRMED
-- Loops Turn 0 → 1 → 2 → 3 → 4 → 5 → back to 0, forever
+- Loops Turn 0 → 1 → 2 → ... → 10 → back to 0, forever
 - TURN_DURATION ~0.6s per frame
 - Hover over deploy zone: show preview_sim on loop
 - Hover leaves zone or no hover: show confirmed_sim on loop
@@ -95,16 +104,25 @@ NO separate BATTLE phase. Animation is always running.
 
 ## Simulation architecture
 - `simulate(all_units: Array) -> Dictionary`
-  - `all_units` = array of {player, col, row} dicts for every unit in the sim
-  - returns `{ timelines, units, combat }`
+  - `all_units` = array of {player, col, row, unit_type} dicts for every unit in the sim
+  - returns `{ timelines, units, combat, obj_control, vp_per_turn, unit_names, unit_obj, unit_kills, unit_dmg, combat_log, obj_ctrl_history, unit_snapshots }`
   - `timelines[uid]` = `Array[Vector2i]` of positions, index 0 = initial
-  - `units[uid]` = final state dict `{ player, col, row, models, eliminated, elim_turn }`
+  - `units[uid]` = final state dict `{ player, col, row, unit_type, models, eliminated, elim_turn }`
   - `combat[turn]` = Array of `{ a, b, ac, ar, bc, br }` pairs
+  - `obj_control` = final objective control array [0/1/2 per objective]
+  - `vp_per_turn[t]` = [p1_cumulative_vp, p2_cumulative_vp]
+  - `unit_names[uid]` = random name string (separate RNG seed 7777)
+  - `unit_obj[uid]` = ["no"/"yes"/"won" per objective] — contribution tracking
+  - `unit_kills[uid]` = kill count; `unit_dmg[uid]` = total damage dealt
+  - `combat_log` = Array of strings, play-by-play text log
+  - `obj_ctrl_history[turn]` = duplicate of obj_control at end of turn (for replay)
+  - `unit_snapshots[turn][uid]` = { models, eliminated, col, row } at end of turn (for replay)
 
 ## Additional confirmed rules
 - Friendly units block each other's paths (same as enemy blocking)
 - Army = 100 point budget. Infantry = 10pts, Cavalry = 20pts. Max 8 units.
-- Tie at end of turn 5 = draw (no winner)
+- Tie at end of turn 10 = draw (no winner)
+- VP scoring: 5 VP per objective held per turn (persistent control)
 - Camera: no auto-pan during animation. Auto-pan to active player's zone when their deploy turn starts.
 - Side panel: shows per-turn score + event log + timeline scrubber
 - Prototype = pass-the-mouse local 2-player. Online/AI = future scope.

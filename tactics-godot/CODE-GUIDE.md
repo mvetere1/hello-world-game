@@ -1,6 +1,6 @@
 # HexMoveDemo.gd — Code Guide for New Godot Users
 
-This is a single-file Godot 4.6 prototype. Everything lives in `HexMoveDemo.gd` (~790 lines), attached to a Node2D in `HexMoveDemo.tscn`. No other scripts, no UI nodes, no tilemaps — just one script drawing everything manually.
+This is a single-file Godot 4.6 prototype. Everything lives in `HexMoveDemo.gd` (~1300 lines), attached to a Node2D in `HexMoveDemo.tscn`. No other scripts, no UI nodes, no tilemaps — just one script drawing everything manually.
 
 ---
 
@@ -32,8 +32,8 @@ Godot calls these functions on our script automatically:
 ```
 COLS/ROWS          → grid dimensions (28×20)
 HEX_SIZE           → radius of each hex in pixels (20)
-UNITS_PER_SIDE     → how many units each player places (3)
-TURNS              → simulation length (12)
+UNITS_PER_SIDE     → how many units each player places (8)
+TURNS              → simulation length (10)
 COMBAT_RANGE       → hexes away to trigger combat (2)
 P1/P2_DEPLOY_ROWS  → which rows each player can click to place units
 OBJECTIVES         → 3 hex coordinates in the middle of the map
@@ -182,15 +182,19 @@ All rendering happens in `_draw()` and its helpers. **Nothing uses Godot's scene
 
 ```
 _draw()
+  ├── [if replay_mode] → _draw_replay()  ← clean turn-by-turn view (early return)
   ├── draw background rect
-  ├── _draw_tile() for each hex         ← grid, zones, objectives
-  ├── _draw_sim()                        ← paths, units, combat
+  ├── _draw_tile() for each hex          ← grid, zones, objectives
+  ├── _draw_sim()                         ← paths, units, combat
   │     ├── 1) hex highlights along paths
   │     ├── 2) path lines connecting turns
   │     ├── 3) ghost tokens at each turn position
   │     ├── 4) combat spark icons
   │     └── 5) current animated unit tokens (interpolated)
-  └── _draw_hud()                        ← top bar with instructions
+  ├── _draw_hud()                         ← top bar + REPLAY button (when DONE)
+  ├── _draw_scoreboard()                  ← VP per turn table
+  ├── _draw_unit_fate()                   ← per-unit stats chart
+  └── _draw_combat_log()                  ← scrollable play-by-play log
 ```
 
 #### `_draw_tile(col, row)` — line 558:
@@ -290,6 +294,29 @@ These are the most likely areas your team will want to modify:
 | `for i in 5` | Loops 0,1,2,3,4 (NOT 1-5). Same as `range(5)`. |
 | Array typing | `var x: Array[Vector2i] = []` — typed arrays are stricter |
 | `PackedVector2Array` | Required for `draw_colored_polygon` / `draw_polyline` — regular arrays won't work |
+
+---
+
+## Replay Mode
+
+When all units are deployed (Phase.DONE), a REPLAY button appears. Clicking it enters replay mode:
+
+- **State:** `replay_mode` (bool) and `replay_turn` (0-based turn index)
+- **Data source:** `obj_ctrl_history` and `unit_snapshots` from simulate() — per-turn state snapshots
+- **Drawing:** `_draw_replay()` takes over the entire `_draw()` call (early return)
+- **No ghost trails** — only the current turn's unit positions are shown with correct model counts
+- **Navigation:** Left/Right arrow keys, Escape to exit back to looping animation
+- **Animation frozen:** `_process()` returns early when `replay_mode` is true
+
+## Scoreboard, Unit Fate Chart, Combat Log
+
+Three additional UI panels are drawn each frame:
+
+| Panel | Location | Data source | Notes |
+|-------|----------|------------|-------|
+| Scoreboard | Top-right | `vp_per_turn` | Cumulative VP per turn, both players |
+| Unit Fate Chart | Below scoreboard | `unit_names`, `unit_obj`, `unit_kills`, `unit_dmg` | Per-unit stats: death turn, objective contribution, kills, damage |
+| Combat Log | Left side (340px) | `combat_log` (also saved to `user://combat_log.txt`) | Scrollable play-by-play, mouse wheel to scroll when cursor is over the panel |
 
 ---
 

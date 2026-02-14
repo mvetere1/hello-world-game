@@ -351,6 +351,10 @@ func simulate(input_units: Array) -> Dictionary:
 	var p1_vp_total := 0
 	var p2_vp_total := 0
 
+	# Per-turn snapshots for replay
+	var obj_ctrl_history: Array = []   # per turn: duplicate of obj_control
+	var unit_snapshots: Array = []     # per turn: array of {models, eliminated, col, row}
+
 	# Play-by-play combat log
 	var combat_log: Array = []
 	var p1_count = 0; var p2_count = 0
@@ -502,7 +506,15 @@ func simulate(input_units: Array) -> Dictionary:
 		combat_log.append("  Score: Blue %d - Red %d" % [p1_vp_total, p2_vp_total])
 		combat_log.append("")
 
-	return { "timelines": timelines, "units": units, "combat": combat_events, "obj_control": obj_control, "vp_per_turn": vp_per_turn, "unit_names": unit_names, "unit_obj": unit_obj, "unit_kills": unit_kills, "unit_dmg": unit_dmg, "combat_log": combat_log }
+		# Snapshot for replay
+		obj_ctrl_history.append(obj_control.duplicate())
+		var snap: Array = []
+		for uid2 in units.size():
+			var u2 = units[uid2]
+			snap.append({ "models": u2.models, "eliminated": u2.eliminated, "col": u2.col, "row": u2.row })
+		unit_snapshots.append(snap)
+
+	return { "timelines": timelines, "units": units, "combat": combat_events, "obj_control": obj_control, "vp_per_turn": vp_per_turn, "unit_names": unit_names, "unit_obj": unit_obj, "unit_kills": unit_kills, "unit_dmg": unit_dmg, "combat_log": combat_log, "obj_ctrl_history": obj_ctrl_history, "unit_snapshots": unit_snapshots }
 
 func _apply_wounds(uid: int, units: Array, wounds: int, turn: int):
 	var u     = units[uid]
@@ -540,6 +552,10 @@ var _obj_control: Array = []  # per-objective: 0=neutral, 1=P1, 2=P2
 var log_lines: Array = []
 var log_scroll: int  = 0
 
+# Replay mode
+var replay_mode  := false
+var replay_turn  := 0
+
 # Camera drag
 var drag_active   := false
 var drag_start    := Vector2.ZERO
@@ -569,6 +585,23 @@ func _ready():
 # ============================================================================
 
 func _input(event: InputEvent):
+	# Replay mode controls
+	if replay_mode and event is InputEventKey and event.pressed:
+		if event.keycode == KEY_RIGHT:
+			replay_turn = mini(replay_turn + 1, TURNS - 1)
+			queue_redraw()
+			return
+		if event.keycode == KEY_LEFT:
+			replay_turn = maxi(replay_turn - 1, 0)
+			queue_redraw()
+			return
+		if event.keycode == KEY_ESCAPE:
+			replay_mode = false
+			queue_redraw()
+			return
+	if replay_mode:
+		return  # block all other input during replay
+
 	# Log panel scroll (left side, 340px wide)
 	if event is InputEventMouseButton and event.pressed and event.position.x < 352:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
@@ -625,6 +658,15 @@ func _input(event: InputEvent):
 
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if not drag_active:
+			# Check REPLAY button click
+			if phase == Phase.DONE and not replay_mode:
+				var vp = get_viewport_rect().size
+				var btn_rect = Rect2(vp.x / 2.0 - 50, 50, 100, 30)
+				if btn_rect.has_point(event.position):
+					replay_mode = true
+					replay_turn = 0
+					queue_redraw()
+					return
 			var h = pixel_to_hex(event.position)
 			_handle_deploy_click(h)
 
@@ -729,6 +771,8 @@ func _recalc_preview_sim():
 # ============================================================================
 
 func _process(delta: float):
+	if replay_mode:
+		return  # freeze animation during replay
 	anim_frac += delta / TURN_DURATION
 	if anim_frac >= 1.0:
 		anim_frac -= 1.0
@@ -742,6 +786,10 @@ func _process(delta: float):
 func _draw():
 	var vp = get_viewport_rect().size
 	draw_rect(Rect2(Vector2.ZERO, vp), C_BG)
+
+	if replay_mode:
+		_draw_replay()
+		return
 
 	# Choose which sim to display
 	var use_preview = (not preview_sim.is_empty()) and (phase == Phase.DEPLOY)
@@ -1015,6 +1063,13 @@ func _draw_hud():
 	var progress = float(anim_turn) / float(TURNS)
 	draw_rect(Rect2(0, bar_y, vp.x * progress, bar_h), C_COMBAT)
 
+	# REPLAY button when game is done
+	if phase == Phase.DONE:
+		var btn_rect = Rect2(vp.x / 2.0 - 50, 50, 100, 30)
+		draw_rect(btn_rect, Color(0.85, 0.75, 0.2, 0.9))
+		draw_rect(btn_rect, Color(1, 1, 1, 0.4), false, 1.5)
+		draw_string(font, Vector2(btn_rect.position.x + 18, btn_rect.position.y + 20), "REPLAY", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.1, 0.1, 0.1))
+
 func _draw_scoreboard(sim: Dictionary):
 	var vpt: Array = sim.get("vp_per_turn", [])
 	if vpt.is_empty():
@@ -1187,3 +1242,96 @@ func _draw_combat_log():
 		var bar_h = panel_h * float(visible_lines) / float(log_lines.size())
 		var bar_y = panel_y + scroll_frac * (panel_h - bar_h)
 		draw_rect(Rect2(panel_x + panel_w - 4, bar_y, 3, bar_h), Color(0.5, 0.5, 0.5, 0.5))
+
+# ============================================================================
+# REPLAY MODE
+# ============================================================================
+
+func _draw_replay():
+	var sim = confirmed_sim
+	if sim.is_empty():
+		return
+
+	var timelines: Array = sim.get("timelines", [])
+	var final_units: Array = sim.get("units", [])
+	var snapshots: Array = sim.get("unit_snapshots", [])
+	var obj_hist: Array = sim.get("obj_ctrl_history", [])
+	var vpt: Array = sim.get("vp_per_turn", [])
+	var unit_names: Array = sim.get("unit_names", [])
+
+	if snapshots.is_empty():
+		return
+
+	# Set obj_control for tile drawing
+	if replay_turn < obj_hist.size():
+		_obj_control = obj_hist[replay_turn]
+	else:
+		_obj_control = sim.get("obj_control", [0, 0, 0])
+
+	# Draw hex grid
+	for r in ROWS:
+		for c in COLS:
+			_draw_tile(c, r)
+
+	# Draw only the units at their replay_turn position — no ghosts, no trails
+	var snap: Array = snapshots[replay_turn] if replay_turn < snapshots.size() else []
+	for uid in timelines.size():
+		var trail: Array = timelines[uid]
+		# timeline index: turn 0 result is at index 1 (index 0 is deployment)
+		var ti = mini(replay_turn + 1, trail.size() - 1)
+		var pos = trail[ti]
+		var center = hex_to_pixel(pos.x, pos.y)
+
+		var u_snap = snap[uid] if uid < snap.size() else {}
+		var is_elim = u_snap.get("eliminated", false)
+		var models = u_snap.get("models", 0)
+		var u = final_units[uid]
+
+		if is_elim:
+			var r = 8.0 * cam_zoom
+			draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
+				Color(0.9, 0.2, 0.2, 0.7), 2.5)
+			draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
+				Color(0.9, 0.2, 0.2, 0.7), 2.5)
+			continue
+
+		_draw_unit_token(center, u.player, models, u.unit_type, false, 1.0)
+
+	# Draw combat events for this turn
+	var combat_ev: Array = sim.get("combat", [])
+	if replay_turn < combat_ev.size():
+		for ev in combat_ev[replay_turn]:
+			var ac = hex_to_pixel(ev.ac, ev.ar)
+			var bc = hex_to_pixel(ev.bc, ev.br)
+			var mid = (ac + bc) * 0.5
+			draw_circle(mid, 14.0 * cam_zoom, Color(C_COMBAT.r, C_COMBAT.g, C_COMBAT.b, 0.35))
+			_draw_swords(mid)
+
+	# --- Replay HUD ---
+	var font = ThemeDB.fallback_font
+	var vp = get_viewport_rect().size
+
+	# Top bar
+	draw_rect(Rect2(0, 0, vp.x, 38), Color(0, 0, 0, 0.85))
+	var score_txt = ""
+	if replay_turn < vpt.size():
+		score_txt = "   |   VP: BLUE %d - RED %d" % [vpt[replay_turn][0], vpt[replay_turn][1]]
+	var hud_txt = "REPLAY  —  Turn %d/%d   (Left/Right to navigate, Esc to exit)%s" % [replay_turn + 1, TURNS, score_txt]
+	draw_string(font, Vector2(14, 24), hud_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.95, 0.85, 0.3))
+
+	# Turn indicator bar
+	draw_rect(Rect2(0, 38, vp.x, 4), Color(0.15, 0.14, 0.12))
+	var progress = float(replay_turn + 1) / float(TURNS)
+	draw_rect(Rect2(0, 38, vp.x * progress, 4), C_COMBAT)
+
+	# Turn pips at bottom
+	var pip_y = vp.y - 30
+	var pip_w = 20.0
+	var total_pip_w = pip_w * TURNS
+	var pip_start = (vp.x - total_pip_w) / 2.0
+	for t in TURNS:
+		var px = pip_start + t * pip_w
+		var is_active = (t == replay_turn)
+		var pip_col = C_COMBAT if is_active else Color(0.3, 0.3, 0.3, 0.6)
+		draw_rect(Rect2(px + 2, pip_y, pip_w - 4, 12), pip_col)
+		draw_string(font, Vector2(px + 4, pip_y + 10), str(t + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1, 1, 1, 0.8) if is_active else Color(0.6, 0.6, 0.6))

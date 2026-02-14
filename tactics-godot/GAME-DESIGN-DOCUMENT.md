@@ -36,7 +36,8 @@ Once all units are placed, the player watches the final battle as a looping repl
 
 ### After all units are placed
 - The full battle animation loops continuously
-- **CONFIRMED: Timeline scrubber** — a slider the player can drag to freely scrub through turns 0–5 for review
+- **CONFIRMED: Timeline scrubber** — a slider the player can drag to freely scrub through turns 0–10 for review
+- **CONFIRMED: Replay mode** — a REPLAY button appears; clicking it enters a clean turn-by-turn view with no ghost trails. Left/Right arrows navigate turns, Escape exits back to the looping animation.
 
 ---
 
@@ -58,7 +59,7 @@ Turn 0 (initial positions)
   → Turn 2
   → Turn 3
   → Turn 4
-  → Turn 5
+  → Turn 10
   → [loop back to Turn 0]
 ```
 - Each turn frame should be visible for approximately **0.5–0.8 seconds** — fast enough to feel like a battle, slow enough to read unit positions
@@ -151,7 +152,7 @@ Combat is **simultaneous**: both units' model counts are snapshotted before dama
 |----------|-------|------------------------------|
 | Models   | 10    | 10 figures per unit          |
 | HP       | 2     | wounds per model             |
-| Move     | 10    | hexes per turn               |
+| Move     | 6     | hexes per turn               |
 | Attacks  | 2     | per model                    |
 | Accuracy | 3+    | hit on 3 or higher           |
 | Wound    | 3+    | wound on 3 or higher         |
@@ -164,7 +165,7 @@ Combat is **simultaneous**: both units' model counts are snapshotted before dama
 |----------|-------|------------------------------|
 | Models   | 5     | 5 figures per unit           |
 | HP       | 5     | wounds per model             |
-| Move     | 18    | hexes per turn               |
+| Move     | 10    | hexes per turn               |
 | Attacks  | 2     | per model                    |
 | Accuracy | 4+    | hit on 4 or higher           |
 | Wound    | 3+    | wound on 3 or higher         |
@@ -181,7 +182,7 @@ Combat is **simultaneous**: both units' model counts are snapshotted before dama
 ## Visual Language
 
 ### Trails
-- Every hex a unit occupies across all 5 turns is rendered simultaneously
+- Every hex a unit occupies across all 10 turns is rendered simultaneously
 - **Opacity gradient:** older positions are more transparent, newest position is most opaque
   - Formula: `opacity = 0.15 + (turn_index / max_turns) * 0.60`
 - Trail token **shrinks** proportionally with model count (thinner = more casualties)
@@ -245,19 +246,58 @@ Each simulated turn:
 
 ---
 
+## Scoring System — CONFIRMED
+
+- **Victory Points (VP):** 5 VP per objective held per turn
+- Persistent objective control: last team with majority models within radius 2 keeps it
+- Ties in presence = contested (no change in control)
+- **10 turns total** — final score determines winner
+- Tie VP = draw
+
+## UI Elements (Prototype)
+
+### Scoreboard
+- Right-side panel showing cumulative VP per turn for both players
+- Header row: Turn | BLUE | RED
+- One row per turn showing running totals
+
+### Unit Fate Chart
+- Below scoreboard, shows per-unit stats after simulation
+- Columns: Unit (type prefix + random name), Died (turn #), O1/O2/O3 (objective contribution: won/yes/-), Kills, Dmg
+- Team-colored rows with divider between P1 and P2
+
+### Combat Log
+- Left-side scrollable panel (340px wide)
+- Play-by-play: deployment listing, per-turn movement, combat detail (wounds, models killed, eliminations), objective status, VP score
+- Color-coded lines (yellow=headers, blue=turns, red=eliminations, green=scores)
+- Scroll with mouse wheel over log area
+- Also written to `user://combat_log.txt` on each simulation run
+
+### Replay Mode
+- REPLAY button appears in HUD when game is DONE
+- Enters clean turn-by-turn view: no ghost trails, no path lines
+- Shows only current-turn unit positions with correct model counts
+- Combat events shown for the current turn
+- Turn pips at bottom, progress bar at top
+- Navigation: Left/Right arrows, Escape to exit
+
+---
+
 ## Prototype Build Priority (Godot)
 
 In order — do not skip ahead:
 
 1. ✅ Hex grid rendering with deployment zones and objectives
 2. ✅ P1 deployment: click to place, preview trail on hover
-3. ⬜ Alternating deployment: P2 places after each P1 placement (AI or second player)
-4. ⬜ Full butterfly effect on hover preview (all trails update in real time)
-5. ⬜ Combat range confirmation (range 1 vs range 2)
-6. ⬜ Objective control logic and visual feedback
-7. ⬜ Win condition evaluation
-8. ⬜ Cavalry unit type
-9. ⬜ Army selection / point costs
+3. ✅ Alternating deployment: P2 places after each P1 placement
+4. ✅ Full butterfly effect on hover preview (all trails update in real time)
+5. ✅ Combat range 2 hexes
+6. ✅ Objective control logic and visual feedback
+7. ✅ Win condition evaluation (VP scoring, 10 turns)
+8. ✅ Cavalry unit type (Tab to toggle during deployment)
+9. ✅ VP Scoreboard, Unit Fate Chart, Combat Log
+10. ✅ Replay mode (turn-by-turn clean view)
+11. ⬜ Army selection / point costs
 
 ---
 
