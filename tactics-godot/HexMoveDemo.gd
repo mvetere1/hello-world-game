@@ -8,8 +8,8 @@ const COLS          = 28
 const ROWS          = 20
 const HEX_SIZE      = 20.0   # circumradius of hex (center to corner)
 
-const UNITS_PER_SIDE = 3
-const TURNS          = 12
+const UNITS_PER_SIDE = 8
+const TURNS          = 10
 const COMBAT_RANGE   = 2
 const TURN_DURATION  = 0.8   # seconds per animation frame
 
@@ -50,6 +50,12 @@ const CAVALRY = {
 	"armor"   : 3,
 	"damage"  : 2,
 }
+
+const UNIT_NAMES = [
+	"Ada", "Ben", "Cal", "Dan", "Eve", "Finn", "Gil", "Hal",
+	"Ida", "Jay", "Kit", "Leo", "Max", "Ned", "Odo", "Pat",
+	"Rex", "Sam", "Tom", "Val",
+]
 
 # ---- colors ------------------------------------------------------------------
 const C_BG       = Color(0.07, 0.10, 0.18)   # dark navy
@@ -188,14 +194,28 @@ func find_path(sc: int, sr: int, gc: int, gr: int, blocked: Dictionary = {}) -> 
 # SIMULATION
 # ============================================================================
 
-func _pick_target_objective(uid: int, units: Array) -> Vector2i:
-	# Priority: nearest unclaimed or enemy-held; ignore friendly-held
-	# If all friendly-held, return nearest enemy position
-	var u     = units[uid]
-	var plr   = u.player
+func _pick_target(uid: int, units: Array) -> Vector2i:
+	var u   = units[uid]
+	var plr = u.player
+	var is_cav = u.unit_type == "cavalry"
+
+	# Cavalry: always hunt nearest enemy unless none within 8 hexes
+	if is_cav:
+		var nearest_enemy := Vector2i(-1, -1)
+		var nearest_d     := 999999
+		for other in units:
+			if other.eliminated or other.player == plr:
+				continue
+			var d = hex_dist(u.col, u.row, other.col, other.row)
+			if d < nearest_d:
+				nearest_d     = d
+				nearest_enemy = Vector2i(other.col, other.row)
+		if nearest_enemy.x >= 0 and nearest_d <= 8:
+			return nearest_enemy
+		# No enemies within 8 — fall through to objective logic
 
 	# Compute objective control from current unit positions
-	var obj_control: Array = []  # -1=none, 1=P1, 2=P2
+	var obj_control: Array = []  # 0=neutral, 1=P1, 2=P2
 	for obj in OBJECTIVES:
 		var cnt1 = 0; var cnt2 = 0
 		for other in units:
@@ -295,11 +315,59 @@ func simulate(input_units: Array) -> Dictionary:
 	for u in units:
 		timelines.append([Vector2i(u.col, u.row)])
 
+	# Random unit names (separate RNG to avoid changing combat outcomes)
+	var name_rng = RandomNumberGenerator.new()
+	name_rng.seed = 7777
+	var name_pool = UNIT_NAMES.duplicate()
+	for i in range(name_pool.size() - 1, 0, -1):
+		var j = name_rng.randi() % (i + 1)
+		var tmp = name_pool[i]
+		name_pool[i] = name_pool[j]
+		name_pool[j] = tmp
+	var unit_names: Array = []
+	for i in units.size():
+		unit_names.append(name_pool[i % name_pool.size()])
+
+	# Per-unit fate tracking
+	var unit_obj: Array = []
+	var unit_kills: Array = []
+	var unit_dmg: Array = []
+	for _i in units.size():
+		unit_obj.append(["no", "no", "no"])
+		unit_kills.append(0)
+		unit_dmg.append(0)
+
 	var combat_events: Array = []
 	for _t in TURNS:
 		combat_events.append([])
 
+	# Persistent objective control: 0=neutral, 1=P1, 2=P2
+	var obj_control: Array = []
+	for _i in OBJECTIVES.size():
+		obj_control.append(0)
+
+	# Per-turn cumulative VP: vp_per_turn[t] = [p1_cumulative, p2_cumulative]
+	var vp_per_turn: Array = []
+	var p1_vp_total := 0
+	var p2_vp_total := 0
+
+	# Play-by-play combat log
+	var combat_log: Array = []
+	var p1_count = 0; var p2_count = 0
+	for u in units:
+		if u.player == 1: p1_count += 1
+		else: p2_count += 1
+	combat_log.append("=== Deployment: %d units (%d Blue, %d Red) ===" % [units.size(), p1_count, p2_count])
+	for uid3 in units.size():
+		var u3 = units[uid3]
+		var tc3 = "C" if u3.unit_type == "cavalry" else "I"
+		var tm3 = "Blue" if u3.player == 1 else "Red"
+		combat_log.append("  %s %s (%s) at (%d,%d)" % [tc3, unit_names[uid3], tm3, u3.col, u3.row])
+	combat_log.append("")
+
 	for turn in TURNS:
+		combat_log.append("--- Turn %d ---" % [turn + 1])
+
 		# ---- Movement ----
 		for uid in units.size():
 			var u = units[uid]
@@ -311,7 +379,7 @@ func simulate(input_units: Array) -> Dictionary:
 				timelines[uid].append(Vector2i(u.col, u.row))
 				continue
 
-			var goal = _pick_target_objective(uid, units)
+			var goal = _pick_target(uid, units)
 			if goal == Vector2i(u.col, u.row):
 				timelines[uid].append(goal)
 				continue
@@ -335,6 +403,19 @@ func simulate(input_units: Array) -> Dictionary:
 					break
 			timelines[uid].append(Vector2i(u.col, u.row))
 
+		# Log movement
+		for uid2 in units.size():
+			var u2 = units[uid2]
+			if u2.eliminated: continue
+			var tl = timelines[uid2]
+			if tl.size() < 2: continue
+			var prev = tl[tl.size() - 2]
+			var cur  = tl[tl.size() - 1]
+			if prev != cur:
+				var tc2 = "C" if u2.unit_type == "cavalry" else "I"
+				var tm2 = "Blue" if u2.player == 1 else "Red"
+				combat_log.append("  %s %s (%s) moves (%d,%d)->(%d,%d)" % [tc2, unit_names[uid2], tm2, prev.x, prev.y, cur.x, cur.y])
+
 		# ---- Combat ----
 		var fought := {}
 		for uid in units.size():
@@ -352,10 +433,76 @@ func simulate(input_units: Array) -> Dictionary:
 			# Roll both sides before applying (simultaneous resolution)
 			var dmg_b = _roll_combat(u, e, rng)
 			var dmg_a = _roll_combat(e, u, rng)
+			unit_dmg[uid] += dmg_b
+			unit_dmg[eid] += dmg_a
+			var u_mdl_before = units[uid].models
+			var e_mdl_before = units[eid].models
 			_apply_wounds(uid, units, dmg_b, turn)
 			_apply_wounds(eid, units, dmg_a, turn)
 
-	return { "timelines": timelines, "units": units, "combat": combat_events }
+			# Log combat detail
+			var u_tc = "C" if u.unit_type == "cavalry" else "I"
+			var e_tc = "C" if e.unit_type == "cavalry" else "I"
+			combat_log.append("  %s %s vs %s %s:" % [u_tc, unit_names[uid], e_tc, unit_names[eid]])
+			if dmg_b > 0:
+				var lost = u_mdl_before - units[uid].models
+				var lost_s = " (%d models killed)" % lost if lost > 0 else ""
+				combat_log.append("    %s takes %d wounds%s" % [unit_names[uid], dmg_b, lost_s])
+			if dmg_a > 0:
+				var lost = e_mdl_before - units[eid].models
+				var lost_s = " (%d models killed)" % lost if lost > 0 else ""
+				combat_log.append("    %s takes %d wounds%s" % [unit_names[eid], dmg_a, lost_s])
+			if dmg_b == 0 and dmg_a == 0:
+				combat_log.append("    No wounds dealt")
+
+			if units[eid].eliminated and units[eid].elim_turn == turn:
+				unit_kills[uid] += 1
+				combat_log.append("    >>> %s %s ELIMINATED <<<" % [e_tc, unit_names[eid]])
+			if units[uid].eliminated and units[uid].elim_turn == turn:
+				unit_kills[eid] += 1
+				combat_log.append("    >>> %s %s ELIMINATED <<<" % [u_tc, unit_names[uid]])
+
+		# ---- Update persistent objective control ----
+		for oi in OBJECTIVES.size():
+			var obj = OBJECTIVES[oi]
+			var old_ctrl = obj_control[oi]
+			var p1_touch = false; var p2_touch = false
+			for u in units:
+				if u.eliminated: continue
+				if hex_dist(u.col, u.row, obj.x, obj.y) <= 2:
+					if u.player == 1: p1_touch = true
+					else:              p2_touch = true
+			if p1_touch and not p2_touch:
+				obj_control[oi] = 1
+			elif p2_touch and not p1_touch:
+				obj_control[oi] = 2
+			# Track unit objective contributions
+			for uid2 in units.size():
+				var u2 = units[uid2]
+				if u2.eliminated: continue
+				if hex_dist(u2.col, u2.row, obj.x, obj.y) > 2: continue
+				if obj_control[oi] == u2.player and old_ctrl != u2.player:
+					unit_obj[uid2][oi] = "won"
+				elif p1_touch and p2_touch and unit_obj[uid2][oi] != "won":
+					unit_obj[uid2][oi] = "yes"
+
+		# Tally VP: 5 per objective held this turn
+		for oi2 in OBJECTIVES.size():
+			if obj_control[oi2] == 1: p1_vp_total += 5
+			elif obj_control[oi2] == 2: p2_vp_total += 5
+		vp_per_turn.append([p1_vp_total, p2_vp_total])
+
+		# Log objectives and score
+		combat_log.append("  Objectives:")
+		for oi3 in OBJECTIVES.size():
+			var ctrl_s = "Neutral"
+			if obj_control[oi3] == 1: ctrl_s = "Blue"
+			elif obj_control[oi3] == 2: ctrl_s = "Red"
+			combat_log.append("    O%d (%d,%d): %s" % [oi3 + 1, OBJECTIVES[oi3].x, OBJECTIVES[oi3].y, ctrl_s])
+		combat_log.append("  Score: Blue %d - Red %d" % [p1_vp_total, p2_vp_total])
+		combat_log.append("")
+
+	return { "timelines": timelines, "units": units, "combat": combat_events, "obj_control": obj_control, "vp_per_turn": vp_per_turn, "unit_names": unit_names, "unit_obj": unit_obj, "unit_kills": unit_kills, "unit_dmg": unit_dmg, "combat_log": combat_log }
 
 func _apply_wounds(uid: int, units: Array, wounds: int, turn: int):
 	var u     = units[uid]
@@ -377,6 +524,7 @@ enum Phase { DEPLOY, DONE }
 
 var phase        = Phase.DEPLOY
 var active_player = 1           # whose turn to deploy (1 or 2)
+var deploy_unit_type := "infantry"  # toggle with Tab
 var placed_p1    : Array        = []  # Array of {player,col,row,unit_type}
 var placed_p2    : Array        = []
 
@@ -386,6 +534,11 @@ var hover_hex     := Vector2i(-1, -1)
 
 var anim_turn  := 0
 var anim_frac  := 0.0   # 0.0–1.0 progress within the current turn (for smooth interpolation)
+var _obj_control: Array = []  # per-objective: 0=neutral, 1=P1, 2=P2
+
+# Combat log
+var log_lines: Array = []
+var log_scroll: int  = 0
 
 # Camera drag
 var drag_active   := false
@@ -416,6 +569,17 @@ func _ready():
 # ============================================================================
 
 func _input(event: InputEvent):
+	# Log panel scroll (left side, 340px wide)
+	if event is InputEventMouseButton and event.pressed and event.position.x < 352:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			log_scroll = maxi(0, log_scroll - 3)
+			queue_redraw()
+			return
+		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			log_scroll = mini(maxi(0, log_lines.size() - 10), log_scroll + 3)
+			queue_redraw()
+			return
+
 	# Camera zoom
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed:
@@ -452,6 +616,13 @@ func _input(event: InputEvent):
 				preview_sim = {}
 			queue_redraw()
 
+	# Tab toggles unit type during deploy
+	if event is InputEventKey and event.pressed and event.keycode == KEY_TAB and phase == Phase.DEPLOY:
+		deploy_unit_type = "cavalry" if deploy_unit_type == "infantry" else "infantry"
+		_recalc_preview_sim()
+		queue_redraw()
+		return
+
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if not drag_active:
 			var h = pixel_to_hex(event.position)
@@ -481,14 +652,14 @@ func _handle_deploy_click(h: Vector2i):
 			return
 		for p in placed_p1:
 			if p.col == h.x and p.row == h.y: return
-		placed_p1.append({ "player": 1, "col": h.x, "row": h.y, "unit_type": "infantry" })
+		placed_p1.append({ "player": 1, "col": h.x, "row": h.y, "unit_type": deploy_unit_type })
 		active_player = 2
 	else:
 		if not (h.y >= P2_DEPLOY_ROWS_MIN and h.y <= P2_DEPLOY_ROWS_MAX and h.x >= DEPLOY_C_MIN and h.x <= DEPLOY_C_MAX):
 			return
 		for p in placed_p2:
 			if p.col == h.x and p.row == h.y: return
-		placed_p2.append({ "player": 2, "col": h.x, "row": h.y, "unit_type": "infantry" })
+		placed_p2.append({ "player": 2, "col": h.x, "row": h.y, "unit_type": deploy_unit_type })
 		active_player = 1
 
 	hover_hex = Vector2i(-1, -1)
@@ -502,12 +673,29 @@ func _handle_deploy_click(h: Vector2i):
 		phase = Phase.DONE
 	queue_redraw()
 
+func _compute_obj_control(sim: Dictionary) -> Array:
+	if sim.is_empty():
+		var result: Array = []
+		for _i in OBJECTIVES.size():
+			result.append(0)
+		return result
+	return sim.get("obj_control", [0, 0, 0])
+
 func _recalc_confirmed_sim():
 	var all_units: Array = placed_p1.duplicate() + placed_p2.duplicate()
 	if all_units.is_empty():
 		confirmed_sim = {}
+		log_lines = []
 		return
 	confirmed_sim = simulate(all_units)
+	log_lines = confirmed_sim.get("combat_log", [])
+	log_scroll = 0
+	# Write to file
+	var f = FileAccess.open("user://combat_log.txt", FileAccess.WRITE)
+	if f:
+		for line in log_lines:
+			f.store_line(line)
+		f.close()
 
 func _recalc_preview_sim():
 	if phase != Phase.DEPLOY: return
@@ -531,7 +719,7 @@ func _recalc_preview_sim():
 		if p.col == hover_hex.x and p.row == hover_hex.y:
 			preview_sim = {}
 			return
-	var preview_unit = { "player": active_player, "col": hover_hex.x, "row": hover_hex.y, "unit_type": "infantry" }
+	var preview_unit = { "player": active_player, "col": hover_hex.x, "row": hover_hex.y, "unit_type": deploy_unit_type }
 	var all_units: Array = placed_p1.duplicate() + placed_p2.duplicate()
 	all_units.append(preview_unit)
 	preview_sim = simulate(all_units)
@@ -555,19 +743,23 @@ func _draw():
 	var vp = get_viewport_rect().size
 	draw_rect(Rect2(Vector2.ZERO, vp), C_BG)
 
+	# Choose which sim to display
+	var use_preview = (not preview_sim.is_empty()) and (phase == Phase.DEPLOY)
+	var draw_sim    = preview_sim if use_preview else confirmed_sim
+	_obj_control = _compute_obj_control(draw_sim)
+
 	# Top-down: no z-ordering needed, just draw row by row
 	for r in ROWS:
 		for c in COLS:
 			_draw_tile(c, r)
 
-	# Choose which sim to display
-	var use_preview = (not preview_sim.is_empty()) and (phase == Phase.DEPLOY)
-	var draw_sim    = preview_sim if use_preview else confirmed_sim
-
 	if not draw_sim.is_empty():
 		_draw_sim(draw_sim, use_preview)
 
 	_draw_hud()
+	_draw_scoreboard(draw_sim)
+	_draw_unit_fate(draw_sim)
+	_draw_combat_log()
 
 func _draw_tile(col: int, row: int):
 	var center = hex_to_pixel(col, row)
@@ -599,11 +791,16 @@ func _draw_tile(col: int, row: int):
 		var a = 0.30 if (active_player == 2 and phase == Phase.DEPLOY) else 0.10
 		tint = Color(C_P2.r, C_P2.g, C_P2.b, a)
 
-	for obj in OBJECTIVES:
+	for i in OBJECTIVES.size():
+		var obj = OBJECTIVES[i]
+		var ctrl = _obj_control[i] if i < _obj_control.size() else 0
+		var ctrl_color = C_BANNER
+		if ctrl == 1: ctrl_color = C_P1
+		elif ctrl == 2: ctrl_color = C_P2
 		if hex_dist(col, row, obj.x, obj.y) <= 2:
-			tint = tint.lerp(Color(C_BANNER.r, C_BANNER.g, C_BANNER.b, 0.25), 0.5)
+			tint = tint.lerp(Color(ctrl_color.r, ctrl_color.g, ctrl_color.b, 0.25), 0.5)
 		if col == obj.x and row == obj.y:
-			tint = Color(C_BANNER.r, C_BANNER.g, C_BANNER.b, 0.45)
+			tint = Color(ctrl_color.r, ctrl_color.g, ctrl_color.b, 0.45)
 
 	if tint.a > 0.0:
 		draw_colored_polygon(corners, tint)
@@ -677,7 +874,7 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 				alpha *= 0.5
 			var is_current = (ti == display_turn)
 			if not is_current:
-				_draw_unit_token(center, u.player, u.models, true, alpha)
+				_draw_unit_token(center, u.player, u.models, u.unit_type, true, alpha)
 
 	# --- 4) Combat sparks ---
 	for t in display_turn:
@@ -709,33 +906,53 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 				Color(0.9, 0.2, 0.2, 0.7), 2.5)
 			continue
 		var alpha = 0.55 if is_preview_unit else 1.0
-		_draw_unit_token(center, u.player, u.models, is_preview_unit, alpha)
+		_draw_unit_token(center, u.player, u.models, u.unit_type, is_preview_unit, alpha)
 
 # ============================================================================
 # DRAW HELPERS
 # ============================================================================
 
-func _draw_unit_token(center: Vector2, player: int, models: int, is_ghost: bool, alpha: float):
+func _draw_unit_token(center: Vector2, player: int, models: int, unit_type: String, is_ghost: bool, alpha: float):
 	var base = C_P1 if player == 1 else C_P2
 	var s    = HEX_SIZE * 0.55 * cam_zoom
 	var a    = alpha * (0.60 if is_ghost else 1.0)
-	# Shield shape
-	var pts  = PackedVector2Array([
-		center + Vector2(-s,       -s * 0.9),
-		center + Vector2( s,       -s * 0.9),
-		center + Vector2( s * 1.1,  s * 0.1),
-		center + Vector2( 0,        s * 1.1),
-		center + Vector2(-s * 1.1,  s * 0.1),
-	])
-	draw_colored_polygon(pts, Color(base.r, base.g, base.b, a))
-	draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[3], pts[4], pts[0]]),
-		Color(1, 1, 1, a * 0.5), 1.0)
-	# Cross emblem
-	var arm = s * 0.45
-	draw_line(center + Vector2(0, -arm), center + Vector2(0, arm),
-		Color(1, 1, 1, a * 0.7), 1.5)
-	draw_line(center + Vector2(-arm, -arm * 0.2), center + Vector2(arm, -arm * 0.2),
-		Color(1, 1, 1, a * 0.7), 1.5)
+	var col  = Color(base.r, base.g, base.b, a)
+	var line = Color(1, 1, 1, a * 0.5)
+
+	if unit_type == "cavalry":
+		# Diamond shape for cavalry
+		var pts = PackedVector2Array([
+			center + Vector2( 0,       -s * 1.1),
+			center + Vector2( s * 1.1,  0),
+			center + Vector2( 0,        s * 1.1),
+			center + Vector2(-s * 1.1,  0),
+		])
+		draw_colored_polygon(pts, col)
+		draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[3], pts[0]]), line, 1.0)
+		# Chevron emblem (like a lance/arrow)
+		var arm = s * 0.4
+		draw_line(center + Vector2(-arm, arm * 0.3), center + Vector2(0, -arm * 0.5),
+			Color(1, 1, 1, a * 0.7), 1.5)
+		draw_line(center + Vector2(arm, arm * 0.3), center + Vector2(0, -arm * 0.5),
+			Color(1, 1, 1, a * 0.7), 1.5)
+	else:
+		# Shield shape for infantry
+		var pts = PackedVector2Array([
+			center + Vector2(-s,       -s * 0.9),
+			center + Vector2( s,       -s * 0.9),
+			center + Vector2( s * 1.1,  s * 0.1),
+			center + Vector2( 0,        s * 1.1),
+			center + Vector2(-s * 1.1,  s * 0.1),
+		])
+		draw_colored_polygon(pts, col)
+		draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[3], pts[4], pts[0]]), line, 1.0)
+		# Cross emblem
+		var arm = s * 0.45
+		draw_line(center + Vector2(0, -arm), center + Vector2(0, arm),
+			Color(1, 1, 1, a * 0.7), 1.5)
+		draw_line(center + Vector2(-arm, -arm * 0.2), center + Vector2(arm, -arm * 0.2),
+			Color(1, 1, 1, a * 0.7), 1.5)
+
 	if not is_ghost and cam_zoom >= 0.5:
 		var font = ThemeDB.fallback_font
 		draw_string(font, center + Vector2(-4, 4), str(models),
@@ -776,21 +993,17 @@ func _draw_hud():
 	if phase == Phase.DEPLOY:
 		var who = "BLUE (P1)" if active_player == 1 else "RED (P2)"
 		var zone_desc = "bottom zone" if active_player == 1 else "top zone"
-		txt = "%s's turn — click %s to place   |   P1: %d/%d   P2: %d/%d   |   RMB/Scroll = pan/zoom" \
-			% [who, zone_desc, p1_placed, UNITS_PER_SIDE, p2_placed, UNITS_PER_SIDE]
+		var utype = deploy_unit_type.to_upper()
+		txt = "%s's turn — click %s to place %s (Tab = switch)   |   P1: %d/%d   P2: %d/%d" \
+			% [who, zone_desc, utype, p1_placed, UNITS_PER_SIDE, p2_placed, UNITS_PER_SIDE]
 	elif phase == Phase.DONE:
-		var fu: Array = confirmed_sim.get("units", [])
-		var p1a = 0; var p2a = 0
-		for u in fu:
-			if not u.eliminated:
-				if u.player == 1:
-					p1a += 1
-				else:
-					p2a += 1
+		var vpt: Array = confirmed_sim.get("vp_per_turn", [])
+		var final_vp = vpt[vpt.size() - 1] if vpt.size() > 0 else [0, 0]
 		var res = "DRAW"
-		if   p1a > p2a: res = "BLUE WINS"
-		elif p2a > p1a: res = "RED WINS"
-		txt = "ALL UNITS DEPLOYED — %s   |   Turn %d/%d   |   RMB/Scroll = pan/zoom" % [res, anim_turn, TURNS]
+		if   final_vp[0] > final_vp[1]: res = "BLUE WINS"
+		elif final_vp[1] > final_vp[0]: res = "RED WINS"
+		txt = "ALL DEPLOYED — %s   |   VP: BLUE %d - RED %d   |   Turn %d/%d" \
+			% [res, final_vp[0], final_vp[1], anim_turn, TURNS]
 
 	draw_string(font, Vector2(14, 24), txt,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.88, 0.88, 0.88))
@@ -801,3 +1014,176 @@ func _draw_hud():
 	draw_rect(Rect2(0, bar_y, vp.x, bar_h), Color(0.15, 0.14, 0.12))
 	var progress = float(anim_turn) / float(TURNS)
 	draw_rect(Rect2(0, bar_y, vp.x * progress, bar_h), C_COMBAT)
+
+func _draw_scoreboard(sim: Dictionary):
+	var vpt: Array = sim.get("vp_per_turn", [])
+	if vpt.is_empty():
+		return
+
+	var font = ThemeDB.fallback_font
+	var vp   = get_viewport_rect().size
+	var fs   = 12  # font size
+	var row_h = 18
+	var col_w = 50
+	var pad   = 8
+	var board_w = col_w * 3  # turn label + blue + red
+	var board_h = row_h * (TURNS + 1) + pad * 2  # header + turn rows + padding
+	var bx = vp.x - board_w - 12  # right side
+	var by: float = 50.0  # below HUD bar
+
+	# Background
+	draw_rect(Rect2(bx, by, board_w, board_h), Color(0, 0, 0, 0.7))
+
+	# Header row
+	var hdr_y = by + pad + row_h * 0.7
+	draw_string(font, Vector2(bx + pad, hdr_y), "Turn", HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, Color(0.7, 0.7, 0.7))
+	draw_string(font, Vector2(bx + col_w, hdr_y), "BLUE", HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, C_P1)
+	draw_string(font, Vector2(bx + col_w * 2, hdr_y), "RED", HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, C_P2)
+
+	# Turn rows
+	for t in TURNS:
+		var ry = by + pad + row_h * (t + 1) + row_h * 0.7
+		var label = str(t + 1)
+		draw_string(font, Vector2(bx + pad, ry), label, HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, Color(0.6, 0.6, 0.6))
+		if t < vpt.size():
+			var p1v = str(vpt[t][0])
+			var p2v = str(vpt[t][1])
+			draw_string(font, Vector2(bx + col_w, ry), p1v, HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, C_P1)
+			draw_string(font, Vector2(bx + col_w * 2, ry), p2v, HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, C_P2)
+
+func _draw_unit_fate(sim: Dictionary):
+	var names: Array = sim.get("unit_names", [])
+	if names.is_empty():
+		return
+	var final_units: Array = sim.get("units", [])
+	var obj_data: Array = sim.get("unit_obj", [])
+	var kills_data: Array = sim.get("unit_kills", [])
+	var dmg_data: Array = sim.get("unit_dmg", [])
+
+	var font = ThemeDB.fallback_font
+	var vp = get_viewport_rect().size
+	var fs = 11
+	var row_h = 15
+	var cw = [62, 30, 25, 25, 25, 30, 30]  # unit, died, o1, o2, o3, kills, dmg
+	var total_w = 0
+	for w in cw:
+		total_w += w
+
+	# Position below scoreboard
+	var sb_h = 18 * (TURNS + 1) + 16
+	var bx = vp.x - total_w - 12
+	var by = 50.0 + sb_h + 8
+
+	var num = final_units.size()
+	var chart_h = row_h * (num + 1) + 10
+
+	# Background
+	draw_rect(Rect2(bx, by, total_w, chart_h), Color(0, 0, 0, 0.7))
+
+	# Header
+	var hy = by + row_h * 0.85
+	var headers = ["Unit", "Died", "O1", "O2", "O3", "Kills", "Dmg"]
+	var hx = bx
+	for i in headers.size():
+		draw_string(font, Vector2(hx + 3, hy), headers[i], HORIZONTAL_ALIGNMENT_LEFT, cw[i], fs, Color(0.7, 0.7, 0.7))
+		hx += cw[i]
+
+	# Rows
+	for uid in num:
+		var u = final_units[uid]
+		var ry = by + row_h * (uid + 1) + row_h * 0.85
+		var rx = bx
+		var tc = C_P1 if u.player == 1 else C_P2
+
+		# Team divider
+		if uid > 0 and u.player != final_units[uid - 1].player:
+			var div_y = by + row_h * (uid + 1) - 1
+			draw_line(Vector2(bx, div_y), Vector2(bx + total_w, div_y), Color(0.4, 0.4, 0.4, 0.5), 1.0)
+
+		# Name with type prefix
+		var tp = "C " if u.unit_type == "cavalry" else "I "
+		draw_string(font, Vector2(rx + 3, ry), tp + names[uid], HORIZONTAL_ALIGNMENT_LEFT, cw[0], fs, tc)
+		rx += cw[0]
+
+		# Died on turn
+		var d_str = str(u.elim_turn + 1) if u.eliminated else "-"
+		var d_col = Color(0.8, 0.3, 0.3) if u.eliminated else Color(0.5, 0.5, 0.5)
+		draw_string(font, Vector2(rx + 3, ry), d_str, HORIZONTAL_ALIGNMENT_LEFT, cw[1], fs, d_col)
+		rx += cw[1]
+
+		# Objective columns
+		for oi in 3:
+			var status = obj_data[uid][oi] if uid < obj_data.size() else "no"
+			var s_str = "-"
+			var s_col = Color(0.5, 0.5, 0.5)
+			if status == "won":
+				s_str = "WON"
+				s_col = Color(0.3, 0.9, 0.3)
+			elif status == "yes":
+				s_str = "yes"
+				s_col = Color(0.8, 0.8, 0.3)
+			draw_string(font, Vector2(rx + 3, ry), s_str, HORIZONTAL_ALIGNMENT_LEFT, cw[2 + oi], fs, s_col)
+			rx += cw[2 + oi]
+
+		# Kills
+		var k = kills_data[uid] if uid < kills_data.size() else 0
+		var k_str = str(k) if k > 0 else "-"
+		var k_col = Color(0.9, 0.6, 0.2) if k > 0 else Color(0.5, 0.5, 0.5)
+		draw_string(font, Vector2(rx + 3, ry), k_str, HORIZONTAL_ALIGNMENT_LEFT, cw[5], fs, k_col)
+		rx += cw[5]
+
+		# Damage
+		var dmg = dmg_data[uid] if uid < dmg_data.size() else 0
+		var dmg_str = str(dmg) if dmg > 0 else "-"
+		var dmg_col = Color(0.9, 0.4, 0.4) if dmg > 0 else Color(0.5, 0.5, 0.5)
+		draw_string(font, Vector2(rx + 3, ry), dmg_str, HORIZONTAL_ALIGNMENT_LEFT, cw[6], fs, dmg_col)
+
+func _draw_combat_log():
+	if log_lines.is_empty():
+		return
+	var font = ThemeDB.fallback_font
+	var vp = get_viewport_rect().size
+	var fs = 10
+	var line_h = 14
+	var pad = 6
+	var panel_w = 340
+	var panel_x = 12
+	var panel_y: float = 50.0
+	var panel_h = vp.y - panel_y - 12
+	var visible_lines = int(panel_h / line_h)
+
+	# Background
+	draw_rect(Rect2(panel_x, panel_y, panel_w, panel_h), Color(0, 0, 0, 0.75))
+
+	# Title
+	draw_string(font, Vector2(panel_x + pad, panel_y + 14), "Combat Log (scroll wheel)", HORIZONTAL_ALIGNMENT_LEFT, panel_w, 11, Color(0.7, 0.7, 0.7))
+
+	# Lines
+	var start_y = panel_y + 28
+	var max_lines = mini(visible_lines - 2, log_lines.size() - log_scroll)
+	for i in max_lines:
+		var li = log_scroll + i
+		if li >= log_lines.size(): break
+		var line: String = log_lines[li]
+		var y_pos = start_y + i * line_h
+		if y_pos + line_h > panel_y + panel_h: break
+		# Color based on content
+		var col = Color(0.75, 0.75, 0.75)
+		if line.begins_with("==="):
+			col = Color(0.9, 0.85, 0.4)
+		elif line.begins_with("---"):
+			col = Color(0.5, 0.7, 0.9)
+		elif "ELIMINATED" in line:
+			col = Color(0.9, 0.3, 0.3)
+		elif "Score:" in line:
+			col = Color(0.4, 0.9, 0.5)
+		elif line.find("moves") >= 0:
+			col = Color(0.6, 0.6, 0.6)
+		draw_string(font, Vector2(panel_x + pad, y_pos), line, HORIZONTAL_ALIGNMENT_LEFT, panel_w - pad * 2, fs, col)
+
+	# Scroll indicator
+	if log_lines.size() > visible_lines:
+		var scroll_frac = float(log_scroll) / float(maxi(1, log_lines.size() - visible_lines))
+		var bar_h = panel_h * float(visible_lines) / float(log_lines.size())
+		var bar_y = panel_y + scroll_frac * (panel_h - bar_h)
+		draw_rect(Rect2(panel_x + panel_w - 4, bar_y, 3, bar_h), Color(0.5, 0.5, 0.5, 0.5))
