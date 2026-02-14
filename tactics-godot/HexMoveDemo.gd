@@ -213,11 +213,14 @@ func _pick_target_objective(uid: int, units: Array) -> Vector2i:
 
 	for i in OBJECTIVES.size():
 		var ctrl = obj_control[i]
+		var my_dist = hex_dist(u.col, u.row, OBJECTIVES[i].x, OBJECTIVES[i].y)
+		# If I'm personally holding this objective, stay here
+		if ctrl == plr and my_dist <= 2:
+			return OBJECTIVES[i]
 		if ctrl == plr:
-			continue  # friendly-held — skip
-		var d = hex_dist(u.col, u.row, OBJECTIVES[i].x, OBJECTIVES[i].y)
-		if d < best_dist:
-			best_dist = d
+			continue  # friendly-held by someone else — skip
+		if my_dist < best_dist:
+			best_dist = my_dist
 			best_pos  = OBJECTIVES[i]
 
 	if best_pos.x >= 0:
@@ -441,9 +444,12 @@ func _input(event: InputEvent):
 		var new_hover = h if is_valid_hex(h.x, h.y) else Vector2i(-1, -1)
 		if new_hover != hover_hex:
 			hover_hex = new_hover
-			_recalc_preview_sim()
-			anim_turn  = 0
-			anim_frac  = 0.0
+			if _is_deploy_hex(new_hover):
+				_recalc_preview_sim()
+				anim_turn  = 0
+				anim_frac  = 0.0
+			elif not preview_sim.is_empty():
+				preview_sim = {}
 			queue_redraw()
 
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -457,6 +463,14 @@ func _zoom(factor: float, pivot: Vector2):
 	var scale = cam_zoom / old_zoom
 	cam_offset = pivot + (cam_offset - pivot) * scale
 	queue_redraw()
+
+func _is_deploy_hex(h: Vector2i) -> bool:
+	if phase != Phase.DEPLOY or not is_valid_hex(h.x, h.y):
+		return false
+	if active_player == 1:
+		return h.y >= P1_DEPLOY_ROWS_MIN and h.y <= P1_DEPLOY_ROWS_MAX and h.x >= DEPLOY_C_MIN and h.x <= DEPLOY_C_MAX
+	else:
+		return h.y >= P2_DEPLOY_ROWS_MIN and h.y <= P2_DEPLOY_ROWS_MAX and h.x >= DEPLOY_C_MIN and h.x <= DEPLOY_C_MAX
 
 func _handle_deploy_click(h: Vector2i):
 	if phase != Phase.DEPLOY: return

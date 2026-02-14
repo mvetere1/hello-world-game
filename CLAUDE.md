@@ -14,9 +14,9 @@ See `tactics-godot/CLAUDE.md` for all Godot-specific rules.
 
 ## Game design summary
 - Turn-based tactics, Warhammer-style combat
-- Pointy-top hex grid, odd-r offset coordinates
-- 3 objectives in center, 5 turns, deployment zones top/bottom
-- Unit types: Infantry (10 models, move 10) and Cavalry (5 models, move 18)
+- Flat-top hex grid, odd-q offset coordinates
+- 3 objectives in center, 12 turns, deployment zones top/bottom
+- Unit types: Infantry (10 models, move 6) and Cavalry (5 models, move 10)
 - Full combat: hit roll → wound roll → armor save (with rend) → damage
 - Visual language: "all time at once" — ghost trails show full battle history simultaneously
 - Full butterfly effect: entire simulation reruns on every unit placement
@@ -26,3 +26,9 @@ See `tactics-godot/CLAUDE.md` for all Godot-specific rules.
 - Never add code that isn't directly needed for the current task
 - Never auto-commit
 - When a bug recurs, add it to the "Known mistakes" section in the relevant CLAUDE.md
+- After ANY gameplay or design change, update ALL relevant docs:
+  - `tactics-godot/GAME-DESIGN-DOCUMENT.md` — authoritative design spec
+  - `tactics-godot/CLAUDE.md` — dev rules, known bugs, architecture
+  - `tactics-godot/CODE-GUIDE.md` — team onboarding guide
+  - `CLAUDE.md` (this file) — top-level summary
+  - Do NOT wait to be asked. If you changed behavior, update the docs in the same pass.
