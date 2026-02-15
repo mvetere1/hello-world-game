@@ -851,6 +851,12 @@ var confirmed_sim := {}
 var preview_sim   := {}
 var preview_diff  := {}   # diff between confirmed and preview sims
 var hover_hex     := Vector2i(-1, -1)
+var deploy_heatmap := {}  # hex_id -> vp delta for active player
+var _heatmap_queue: Array = []  # hex coords still to compute
+var _heatmap_base_vp := 0      # cached baseline VP for incremental compute
+var _heatmap_base_units: Array = []  # cached unit list for incremental compute
+var _heatmap_min := 0  # worst delta seen so far (for relative scaling)
+var _heatmap_max := 0  # best delta seen so far
 
 var anim_turn  := 0
 var anim_frac  := 0.0   # 0.0–1.0 progress within the current turn (for smooth interpolation)
@@ -995,6 +1001,9 @@ func _input(event: InputEvent):
 			cam_offset = cam_start + (event.position - drag_start)
 			queue_redraw()
 			return
+		if selecting_unit or ds_selecting_turn:
+			queue_redraw()
+			return
 		# Update hover
 		var h = pixel_to_hex(event.position)
 		var new_hover = h if is_valid_hex(h.x, h.y) else Vector2i(-1, -1)
@@ -1087,6 +1096,8 @@ func _handle_deploy_click(h: Vector2i):
 	ds_legal_hexes = {}
 	ds_pending_hex = Vector2i(-1, -1)
 	hover_hex = Vector2i(-1, -1)
+	deploy_heatmap = {}
+	_heatmap_queue = []
 	_recalc_confirmed_sim()
 	_recalc_preview_sim()
 	anim_turn  = 0
@@ -1114,6 +1125,8 @@ func _handle_unit_select_click(pos: Vector2):
 			selecting_unit = false
 			if deploy_unit_type == "deep_strike":
 				ds_selecting_turn = true
+			else:
+				_compute_deploy_heatmap()
 			queue_redraw()
 			return
 
@@ -1133,6 +1146,7 @@ func _handle_ds_turn_click(pos: Vector2):
 			ds_arrival_turn = i + 2  # T2 = index 0 + 2
 			ds_selecting_turn = false
 			ds_legal_hexes = _compute_ds_legal_hexes(ds_arrival_turn)
+			_compute_deploy_heatmap()
 			queue_redraw()
 			return
 
@@ -1211,6 +1225,59 @@ func _recalc_preview_sim():
 	all_units.append(preview_unit)
 	preview_sim = simulate(all_units)
 	preview_diff = _compute_sim_diff()
+
+func _compute_deploy_heatmap():
+	deploy_heatmap = {}
+	_heatmap_queue = []
+	_heatmap_min = 0
+	_heatmap_max = 0
+	if phase != Phase.DEPLOY or selecting_unit or ds_selecting_turn:
+		return
+	# Cache baseline VP
+	_heatmap_base_vp = 0
+	var conf_vpt: Array = confirmed_sim.get("vp_per_turn", [])
+	if not conf_vpt.is_empty():
+		var final_vp = conf_vpt[conf_vpt.size() - 1]
+		_heatmap_base_vp = final_vp[0] if active_player == 1 else final_vp[1]
+	_heatmap_base_units = placed_p1.duplicate() + placed_p2.duplicate()
+	# Build queue of hex coordinates to process
+	var occupied := {}
+	for p in _heatmap_base_units:
+		occupied[hex_id(p.col, p.row)] = true
+	if deploy_unit_type == "deep_strike" and ds_arrival_turn > 0:
+		for hid in ds_legal_hexes:
+			if not occupied.has(hid):
+				_heatmap_queue.append(Vector2i(hid / 1000, hid % 1000))
+	else:
+		var r_min = P1_DEPLOY_ROWS_MIN if active_player == 1 else P2_DEPLOY_ROWS_MIN
+		var r_max = P1_DEPLOY_ROWS_MAX if active_player == 1 else P2_DEPLOY_ROWS_MAX
+		for r in range(r_min, r_max + 1):
+			for c in range(DEPLOY_C_MIN, DEPLOY_C_MAX + 1):
+				if not occupied.has(hex_id(c, r)):
+					_heatmap_queue.append(Vector2i(c, r))
+
+func _process_heatmap_batch(count: int):
+	for _i in count:
+		if _heatmap_queue.is_empty():
+			return
+		var coord: Vector2i = _heatmap_queue.pop_back()
+		var c = coord.x
+		var r = coord.y
+		var test_unit = { "player": active_player, "col": c, "row": r, "unit_type": deploy_unit_type }
+		if deploy_unit_type == "deep_strike" and ds_arrival_turn > 0:
+			test_unit["start_turn"] = ds_arrival_turn
+		var test_units = _heatmap_base_units.duplicate()
+		test_units.append(test_unit)
+		var result = simulate(test_units)
+		var result_vpt: Array = result.get("vp_per_turn", [])
+		var test_vp := 0
+		if not result_vpt.is_empty():
+			var fvp = result_vpt[result_vpt.size() - 1]
+			test_vp = fvp[0] if active_player == 1 else fvp[1]
+		var delta = test_vp - _heatmap_base_vp
+		deploy_heatmap[hex_id(c, r)] = delta
+		if delta < _heatmap_min: _heatmap_min = delta
+		if delta > _heatmap_max: _heatmap_max = delta
 
 func _compute_sim_diff() -> Dictionary:
 	if confirmed_sim.is_empty() or preview_sim.is_empty():
@@ -1427,6 +1494,9 @@ func _generate_battle_summary() -> Array:
 func _process(delta: float):
 	if replay_mode:
 		return  # freeze animation during replay
+	# Process heatmap queue incrementally (2 sims per frame to stay responsive)
+	if not _heatmap_queue.is_empty():
+		_process_heatmap_batch(2)
 	var speed = TURN_DURATION
 	if phase == Phase.DEPLOY and view_mode == ViewMode.FULL:
 		speed = 0.3  # 2x faster in FULL mode for snail-trail effect
@@ -1536,6 +1606,20 @@ func _draw_tile(col: int, row: int):
 
 	if tint.a > 0.0:
 		draw_colored_polygon(corners, tint)
+
+	# VP heatmap overlay during deployment
+	if not deploy_heatmap.is_empty() and phase == Phase.DEPLOY and not selecting_unit and not ds_selecting_turn:
+		var hid = hex_id(col, row)
+		if deploy_heatmap.has(hid):
+			var vp_delta: int = deploy_heatmap[hid]
+			if vp_delta > 0 and _heatmap_max > 0:
+				var t = clampf(float(vp_delta) / _heatmap_max, 0.0, 1.0)
+				var intensity = lerpf(0.08, 0.7, t * t)
+				draw_colored_polygon(corners, Color(0.15, 1.0, 0.25, intensity))
+			elif vp_delta < 0 and _heatmap_min < 0:
+				var t = clampf(float(-vp_delta) / -_heatmap_min, 0.0, 1.0)
+				var intensity = lerpf(0.08, 0.7, t * t)
+				draw_colored_polygon(corners, Color(1.0, 0.15, 0.15, intensity))
 
 	# Deep strike legal hex highlighting
 	if deploy_unit_type == "deep_strike" and ds_arrival_turn > 0 and not selecting_unit and not ds_selecting_turn:
@@ -2543,14 +2627,18 @@ func _draw_unit_select():
 	var start_x = (vp.x - total_w) / 2.0
 	var start_y = vp.y / 2.0 - btn_h / 2.0
 
+	var mpos = get_viewport().get_mouse_position()
 	for i in UNIT_TYPES.size():
 		var bx = start_x + i * (btn_w + gap)
 		var rect = Rect2(bx, start_y, btn_w, btn_h)
-		draw_rect(rect, Color(accent.r, accent.g, accent.b, 0.3))
-		draw_rect(rect, Color(1, 1, 1, 0.5), false, 1.5)
+		var hovered = rect.has_point(mpos)
+		var fill_alpha = 0.55 if hovered else 0.3
+		var border_alpha = 1.0 if hovered else 0.5
+		draw_rect(rect, Color(accent.r, accent.g, accent.b, fill_alpha))
+		draw_rect(rect, Color(1, 1, 1, border_alpha), false, 2.0 if hovered else 1.5)
 		var label = UNIT_TYPES[i].replace("_", " ").to_upper()
 		draw_string(font, Vector2(bx + 8, start_y + 30), label,
-			HORIZONTAL_ALIGNMENT_LEFT, btn_w - 16, 16, Color(0.95, 0.95, 0.95))
+			HORIZONTAL_ALIGNMENT_LEFT, btn_w - 16, 16, Color.WHITE if hovered else Color(0.95, 0.95, 0.95))
 
 func _draw_ds_turn_select():
 	var font = ThemeDB.fallback_font
@@ -2570,10 +2658,14 @@ func _draw_ds_turn_select():
 	var start_x = (vp.x - total_w) / 2.0
 	var start_y = vp.y / 2.0 - btn_h / 2.0
 
+	var mpos = get_viewport().get_mouse_position()
 	for i in count:
 		var bx = start_x + i * (btn_w + gap)
 		var rect = Rect2(bx, start_y, btn_w, btn_h)
-		draw_rect(rect, Color(accent.r, accent.g, accent.b, 0.3))
-		draw_rect(rect, Color(1, 1, 1, 0.5), false, 1.5)
+		var hovered = rect.has_point(mpos)
+		var fill_alpha = 0.55 if hovered else 0.3
+		var border_alpha = 1.0 if hovered else 0.5
+		draw_rect(rect, Color(accent.r, accent.g, accent.b, fill_alpha))
+		draw_rect(rect, Color(1, 1, 1, border_alpha), false, 2.0 if hovered else 1.5)
 		draw_string(font, Vector2(bx + 14, start_y + 28), "T%d" % (i + 2),
-			HORIZONTAL_ALIGNMENT_LEFT, btn_w - 10, 17, Color(0.95, 0.95, 0.95))
+			HORIZONTAL_ALIGNMENT_LEFT, btn_w - 10, 17, Color.WHITE if hovered else Color(0.95, 0.95, 0.95))
