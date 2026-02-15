@@ -1,6 +1,12 @@
 # HexMoveDemo.gd — Code Guide for New Godot Users
 
-This is a single-file Godot 4.6 prototype. Everything lives in `HexMoveDemo.gd` (~1300 lines), attached to a Node2D in `HexMoveDemo.tscn`. No other scripts, no UI nodes, no tilemaps — just one script drawing everything manually.
+This is a single-file Godot 4.6 prototype. Everything lives in `HexMoveDemo.gd` (~2500 lines), attached to a Node2D in `HexMoveDemo.tscn`. No other scripts, no UI nodes, no tilemaps — just one script drawing everything manually.
+
+---
+
+## Core Design Principle: RNG as Terrain, Not Chaos
+
+**Every team member must understand this.** Randomness in this game exists to create unique, interesting board states — NOT to make the player feel helpless. The player sees the exact future before committing. RNG effects are local (only nearby changes affect nearby fights). The player controls outcomes through strategy, not luck. If you're adding a feature that involves randomness, it must be previewable, local, and player-controllable.
 
 ---
 
@@ -37,11 +43,12 @@ TURNS              → simulation length (10)
 COMBAT_RANGE       → hexes away to trigger combat (2)
 P1/P2_DEPLOY_ROWS  → which rows each player can click to place units
 OBJECTIVES         → 3 hex coordinates in the middle of the map
-INFANTRY/CAVALRY   → stat blocks (models, hp, move, attacks, hit, wound, rend, armor, damage)
+INFANTRY/CAVALRY/ARTILLERY/DEEP_STRIKE/WIZARD → stat blocks
+UNIT_TYPES         → ["infantry", "cavalry", "artillery", "deep_strike", "wizard"]
 C_BG, C_P1, etc.   → color constants
 ```
 
-**To change game balance:** edit the INFANTRY/CAVALRY dictionaries.
+**To change game balance:** edit the unit stat dictionaries. Use `_get_stats(unit_type)` to look up stats by type string.
 **To resize the map:** change COLS, ROWS, and adjust deploy rows/objectives.
 
 ---
@@ -96,38 +103,41 @@ find_path(...)        → Returns array of Vector2i waypoints from start to goal
 
 This is the **core game logic**. The `simulate()` function takes placed units and returns the entire battle.
 
-#### How `simulate()` works (line 267):
+#### How `simulate()` works:
 
 ```
-1. Create RNG seeded from unit positions (deterministic — same placement = same result)
-2. Copy input units into working array with full stats
-3. For each turn (12 turns):
-   a. MOVEMENT PHASE: each unit picks a goal and walks toward it via A*
-   b. COMBAT PHASE: adjacent enemies fight simultaneously
-4. Return {timelines, units, combat} — the full history
+1. Copy input units into working array with full stats
+2. For each turn (10 turns):
+   a. DEEP STRIKE ARRIVAL: units with start_turn == turn materialize
+   b. MOVEMENT: per-type AI picks goal, unit walks via A*
+   c. RANGED PHASE: artillery/wizard shoot (one-way) if not in melee
+   d. MELEE PHASE: pairs within COMBAT_RANGE fight simultaneously
+   e. WIZARD RETREAT: wizards in melee move 5 hex away
+   f. OBJECTIVE CHECK: weighted control calculation
+3. Return {timelines, units, combat, ...} — the full history
 ```
 
-#### Movement AI (`_pick_target_objective`, line 191):
-1. Look at 3 objectives → who controls each? (count nearby models)
-2. Move toward nearest objective that ISN'T already friendly-held
-3. If all objectives are friendly → move toward nearest enemy
-4. If enemy is within COMBAT_RANGE → STOP and stay to fight
+#### Movement AI (per unit type):
+- **Infantry/Deep Strike:** nearest unclaimed/enemy objective; if all friendly, nearest enemy
+- **Cavalry:** hunt nearest enemy; if none, objectives
+- **Artillery:** stay if ranged target within 20; else walk straight forward toward enemy side (does NOT chase objectives)
+- **Wizard:** kite at range 8 (approach enemy but avoid COMBAT_RANGE 2); else objectives
 
-#### Combat (`_roll_combat`, line 254):
-Warhammer-style dice rolling for each attack:
+#### Combat:
+**Ranged** (`_find_ranged_target`, `_roll_combat`): one-way attack, target doesn't return fire.
+**Melee** (`_roll_melee`): Warhammer-style simultaneous combat. Artillery/Wizard use melee_* stats.
 ```
-For each model × attacks_per_model:
+For each model × attacks:
   Roll d6 → hit?  (need >= hit stat)
   Roll d6 → wound? (need >= wound stat)
   Roll d6 → armor save? (need >= armor + rend, if fail → take damage)
 ```
-Both sides roll before wounds are applied (simultaneous).
 
-#### Wound tracking (`_apply_wounds`, line 357):
+#### Wound tracking (`_apply_wounds`):
 Wounds accumulate. When wounds >= model's HP, one model dies and leftover wounds carry over. Unit is "eliminated" when models reach 0.
 
-#### The "Butterfly Effect":
-Because the RNG seed is derived from unit positions (`seed_val ^ (col * 31 + row * 97 + ...)`), placing a unit on a DIFFERENT hex produces completely different dice rolls for the ENTIRE battle. This is the core mechanic — every placement decision ripples through the whole simulation.
+#### The "Local Butterfly Effect":
+Each combat pair gets its own RNG seed derived from the pair identity, turn number, and positions of all units within 2 hexes. Placing a unit near a fight changes that fight's outcome, but distant fights are unaffected. The cascade is the game: a changed fight → a unit survives/dies → objectives flip → the score shifts.
 
 ---
 
@@ -135,20 +145,37 @@ Because the RNG seed is derived from unit positions (`seed_val ^ (col * 31 + row
 
 #### Phase system:
 ```
-Phase.DEPLOY → players take turns clicking to place units
-Phase.DONE   → all units placed, just watching the animation loop
+Phase.DEPLOY → unit selection → placement → alternate players
+Phase.DONE   → all units placed, animation loops, REPLAY button
 ```
 
 #### Deployment flow:
-1. `active_player` alternates between 1 and 2
-2. Click in your deploy zone → adds unit to `placed_p1` or `placed_p2`
-3. On every click: `_recalc_confirmed_sim()` reruns full simulation
-4. On every hover: `_recalc_preview_sim()` adds a ghost unit and reruns simulation
-5. After `UNITS_PER_SIDE * 2` total placements → Phase.DONE
+1. Unit selection popup appears (5 types: Infantry, Cavalry, Artillery, Deep Strike, Wizard)
+2. Player clicks type → `deploy_unit_type` set, popup closes
+3. [Deep Strike only] Turn selector popup (T2–T8) → legal hexes highlighted (9+ from all enemies at arrival turn)
+4. Hover in deploy zone → preview sim runs with ghost unit
+5. Click to confirm → adds unit to `placed_p1` or `placed_p2`, recalc confirmed sim
+6. `active_player` flips, `selecting_unit = true`, repeat
+7. After `UNITS_PER_SIDE * 2` total placements → Phase.DONE
 
-#### Two simulation states:
+#### Key state vars:
+- `selecting_unit` — true when unit selection popup is showing
+- `ds_selecting_turn` — true when deep strike turn selector is showing
+- `ds_arrival_turn` — chosen arrival turn for deep strike (-1 if not set)
+- `ds_legal_hexes` — dictionary of valid hex_ids for deep strike placement
+- `view_mode` — current view mode (CLEAN/CHANGED/FULL/FINAL enum)
+
+#### View modes (keys 1–4):
+Players switch view modes during deployment to control visual information density:
+- **1 = CLEAN**: all units at final position, preview unit gets full timeline
+- **2 = CHANGED**: full timelines for affected units + preview unit, rest at final position
+- **3 = FULL**: full timelines for ALL units at 2x speed with enhanced "snail trail" — units rendered as spacetime worms (thicker lines, higher opacity, faster scan)
+- **4 = FINAL**: static end-state snapshot — all units at final/death positions, final objectives, no animation
+
+#### Two simulation states + diff:
 - `confirmed_sim` — based on actually placed units (solid rendering)
 - `preview_sim` — includes the ghost unit under your cursor (faded rendering)
+- `preview_diff` — fate changes, score delta, objective flips between confirmed/preview
 
 This is what creates the live preview — as you move your mouse, the preview sim recalculates and you see all paths shift.
 
@@ -183,18 +210,22 @@ All rendering happens in `_draw()` and its helpers. **Nothing uses Godot's scene
 ```
 _draw()
   ├── [if replay_mode] → _draw_replay()  ← clean turn-by-turn view (early return)
+  ├── [if show_summary] → _draw_battle_summary() ← scrollable overlay (early return)
   ├── draw background rect
-  ├── _draw_tile() for each hex          ← grid, zones, objectives
-  ├── _draw_sim()                         ← paths, units, combat
-  │     ├── 1) hex highlights along paths
-  │     ├── 2) path lines connecting turns
-  │     ├── 3) ghost tokens at each turn position
-  │     ├── 4) combat spark icons
-  │     └── 5) current animated unit tokens (interpolated)
-  ├── _draw_hud()                         ← top bar + REPLAY button (when DONE)
+  ├── _draw_tile() for each hex          ← grid, zones, objectives, DS legal hex highlights
+  ├── _draw_sim()                         ← paths, units, combat (view-mode aware)
+  │     ├── [FINAL mode] → _draw_final_state() (static end-state)
+  │     ├── show_timeline_for_uid lambda  ← per-unit visibility by view mode
+  │     ├── _draw_unit_final()            ← draws unit at final position only (for frozen units)
+  │     ├── _draw_single_timeline()       ← full 5-layer timeline for one unit
+  │     └── combat sparks (filtered by view mode)
+  ├── _draw_hud()                         ← top bar + REPLAY/SUMMARY buttons (when DONE)
   ├── _draw_scoreboard()                  ← VP per turn table
   ├── _draw_unit_fate()                   ← per-unit stats chart
-  └── _draw_combat_log()                  ← scrollable play-by-play log
+  ├── _draw_preview_narrative()           ← text summary of preview unit's fate
+  ├── _draw_combat_log()                  ← scrollable play-by-play log
+  ├── [if selecting_unit] → _draw_unit_select()      ← 5-button popup
+  └── [if ds_selecting_turn] → _draw_ds_turn_select() ← T2-T8 popup
 ```
 
 #### `_draw_tile(col, row)` — line 558:
@@ -205,17 +236,24 @@ _draw()
 5. Hover highlight (white overlay)
 6. Draw objective banner (flag on a pole)
 
-#### `_draw_sim()` — line 606:
-The simulation result contains `timelines` — an array per unit, where each entry is the unit's position at that turn. This function draws:
+#### `_draw_sim()`:
+The simulation result contains `timelines` — an array per unit, where each entry is the unit's position at that turn. This function uses the current `view_mode` to decide what to show:
 
+- A `show_timeline_for_uid` lambda determines per-unit visibility based on view mode
+- **CLEAN**: preview unit gets `_draw_single_timeline()`; all others get `_draw_unit_final()` (final position only)
+- **CHANGED**: `changed_uids` + preview unit get full timelines; rest get final position
+- **FULL**: all units get full timelines via `_draw_single_timeline()`
+- **FINAL**: handled by `_draw_final_state()` — static snapshot, no animation
+
+For each visible unit timeline, `_draw_single_timeline()` draws 5 layers:
 1. **Path hex highlights** — every hex a unit visits gets a subtle player-colored tint
 2. **Path lines** — colored lines connecting each consecutive position (skips if stationary)
-3. **Ghost tokens** — faded shield icons at each turn position (NOT the current animated turn)
-4. **Combat sparks** — gold circle + crossed swords where fights happened
-5. **Current tokens** — solid unit shields at the animated position, smoothly interpolated between turns
+3. **Ghost tokens** — faded type-specific shapes at each turn position (NOT the current animated turn)
+4. **Combat sparks** — gold circle + crossed swords where fights happened (filtered by view mode — only shown when at least one participant has a visible timeline)
+5. **Current tokens** — solid unit shapes at the animated position, smoothly interpolated between turns
 
-#### `_draw_unit_token()` — line 704:
-Draws a shield-shaped polygon with a cross emblem and model count. Takes `is_ghost` and `alpha` params to control opacity for trail vs current positions.
+#### `_draw_unit_token()`:
+Draws a unit-type-specific shape (shield/diamond/trapezoid/star/circle) with model count. Takes `is_ghost` and `alpha` params to control opacity for trail vs current positions. Shape determined by `unit_type` parameter.
 
 ---
 
@@ -269,7 +307,6 @@ These are the most likely areas your team will want to modify:
 - **Animation speed** (line 14): TURN_DURATION controls how fast turns play
 
 ### Medium complexity:
-- **Add unit type selection** during deployment (currently hardcoded to infantry — see line 470/477)
 - **Add an undo button** (pop last entry from placed_p1/p2, recalc sim)
 - **Improve the HUD** (lines 753–789): add more info, make it prettier
 - **Add a timeline scrubber** so players can drag to see specific turns instead of watching the loop
@@ -329,6 +366,6 @@ Three additional UI panels are drawn each frame:
 | **confirmed_sim** | Simulation result based on actually-placed units |
 | **preview_sim** | Simulation result including the ghost unit under cursor |
 | **ghost/trail** | Faded visual showing where a unit WAS or WILL BE at other turns |
-| **butterfly effect** | Changing one unit's placement changes the RNG seed, altering the entire battle |
+| **butterfly effect** | Placing a unit near a fight changes its per-combat RNG seed; distant fights are unaffected |
 | **odd-q offset** | Hex coordinate system where odd columns are staggered down |
 | **cube coords** | Alternative hex coordinate system used internally for distance calculation |

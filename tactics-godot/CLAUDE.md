@@ -1,14 +1,25 @@
 # CLAUDE.md — tactics-godot
 
+## CORE DESIGN PRINCIPLE: RNG as Terrain, Not Chaos
+**RNG chaos is BAD in this game.** Randomness creates unique game states, but the player must make intelligent decisions to alter outcomes in their favor. Every feature must follow:
+- Outcomes are **previewable** — the player sees the exact future before committing
+- RNG effects are **local** — only nearby changes affect nearby fights
+- The player **controls** outcomes through strategy, not luck
+- No hidden randomness — what you see is what you get
+
+**If a new feature introduces randomness, it must be previewable, local, and player-controllable. No exceptions.**
+
 ## Project
 Godot 4.6 hex tactics demo. Single-file architecture for now.
 - Main scene: `HexMoveDemo.tscn` → `HexMoveDemo.gd`
 - Grid: **120 cols × 88 rows**, **FLAT-TOP hex, isometric rendering** (FFT style)
 - Tileset: `res://../../assets/hex tactics assets/tileset hex tommy.png` (~48px per tile)
-- 8 units per player, free army pick (Infantry + Cavalry)
-- Combat range: 2 hexes
+- 8 units per player, free pick from 5 types: Infantry, Cavalry, Artillery, Deep Strike, Wizard
+- Non-reversible unit selection popup before each placement (blind commitment)
+- Combat phases per turn: Movement → Ranged (one-way) → Melee (simultaneous) → Retreat (wizard)
+- Combat range: 2 hexes (melee); Artillery range 20, Wizard range 8
 - Objectives: 3, controlled by most models within radius 2 per turn
-- RNG seed: derived from placement position hash
+- RNG seed: per-combat (seeded from pair + turn + nearby unit positions within 2 hexes)
 
 ## IMPORTANT: Hex math changed to flat-top
 - Old (pointy-top): `x = sqrt(3)*size*(col + 0.5*(row&1))`, `y = 1.5*size*row`
@@ -72,13 +83,40 @@ This runs:
 6. **Damage as integer division** — `kills = damage / hp` discards partial wounds. Units must track accumulated wounds across turns; only remove model when accumulated >= hp.
 7. **Units fighting multiple enemies** — only fight the NEAREST enemy within range. Do not split attacks or fight all in range simultaneously.
 8. **Objective AI priority** — units must check if an objective is friendly-held before pathing to it. Skip friendly-held; target nearest unclaimed or enemy-held. If all objectives friendly-held, path to nearest enemy.
+9. **Deep strike units targetable before arrival** — FIXED. Units with `start_turn > 0` existed at their deploy coordinates before materializing, so artillery/melee could kill them pre-arrival. Fix: added `arrived` flag, checked in all targeting/control functions. The old `e.col == -1` check was wrong because units keep their deploy coords in the unit dict.
+10. **Artillery chasing objectives** — FIXED. When artillery had no ranged target, it fell through to `_pick_target()` which chased objectives. Fix: artillery now walks straight forward toward enemy side (`fwd_row ± 1`) when no target is in range.
+11. **Combat sparks appearing in wrong view modes** — FIXED. Sparks now filtered by `show_timeline_for_uid` lambda — only render when at least one combat participant has a visible timeline in the current view mode.
+12. **Summary X button not working** — FIXED. The early-return catch-all in `_input()` consumed all mouse events before the close button handler. Fix: moved close button check inside the summary input block before the catch-all.
+
+## Known concerns
+1. **Visual clutter on the battlefield** — with 16 units, ghost trails, path lines, combat sparks, and objective highlights, the map can be visually noisy. Mitigations in place:
+   - **View mode system** (keys 1–4): CLEAN (final positions only + preview unit path), CHANGED (only affected timelines), FULL (all timelines, 2x speed, snail-trail), FINAL (static end-state). Player controls information density.
+   - **Combat spark filtering**: sparks only render when at least one participant has a visible timeline in the current view mode.
+   - **Narrative preview panel**: text summary of what the preview unit will do (fights, objectives, death), displayed below the fate chart.
+   - **Font sizes increased ~30%** across all UI for high-resolution monitors.
 
 ## Game phases — UPDATED
 ```
-DEPLOY  → alternating P1/P2 placement; looping animation runs the entire time
+DEPLOY  → unit selection popup → place unit → alternating P1/P2; looping animation runs
 DONE    → all units placed; animation loops; result HUD shown; REPLAY button available
 ```
 NO separate BATTLE phase. Animation is always running.
+
+### Deployment sub-flow
+1. Unit selection popup appears (5 buttons: Infantry, Cavalry, Artillery, Deep Strike, Wizard)
+2. Player clicks a unit type → popup closes, deployment mode begins
+3. For Deep Strike: turn selector popup (T2–T8) appears first, then legal hexes highlighted
+4. Player hovers/clicks to place → unit locked in, next player's turn starts
+
+### Per-turn simulation structure
+```
+1. DEEP STRIKE ARRIVAL: units with start_turn == current turn materialize
+2. MOVEMENT: per-type AI (infantry→objectives, cavalry→enemies, artillery→stay/advance, wizard→kite, DS→objectives)
+3. RANGED PHASE: artillery/wizard shoot (one-way, skipped if in melee)
+4. MELEE PHASE: all pairs within COMBAT_RANGE fight simultaneously (melee profiles for artillery/wizard)
+5. WIZARD RETREAT: wizards that were in melee move 5 hex away from all units/objectives
+6. OBJECTIVE CHECK: weighted control (infantry/cavalry 1.0, DS/wizard 0.5, artillery 0.0)
+```
 
 ## Replay mode
 - Entered via REPLAY button (shown when Phase.DONE)
@@ -89,6 +127,28 @@ NO separate BATTLE phase. Animation is always running.
 - Animation frozen during replay (`_process` returns early)
 - Turn pips at bottom, VP score in HUD
 
+## Visual Philosophy: Spacetime Worms
+Units are NOT tokens that move across a board. **Units ARE spacetime worms** — 4D objects stretching from deployment to death/turn 10. The ghost trail IS the unit. The animation scans through slices. FULL mode renders the true shape. See GDD for full philosophy (block universe / eternalism).
+
+## View Modes (keys 1–4)
+During deployment, the player can switch between four view modes to control visual information density:
+
+| Key | Mode | What it shows |
+|-----|------|---------------|
+| 1 | CLEAN | All units at final position only. Preview unit gets full timeline (path, ghosts, trail). |
+| 2 | CHANGED | Full timelines for units whose fate changed due to preview placement + preview unit. Rest at final position. |
+| 3 | FULL | Full timelines for ALL units at 2x speed. Enhanced snail-trail visuals (thicker lines, higher opacity) — the spacetime worm view. |
+| 4 | FINAL | Static end-state. All units at final/death positions, final objective control. No animation. |
+
+Combat sparks are filtered per view mode — only shown when at least one participant has a visible timeline.
+
+## Narrative Preview Panel
+When hovering a deploy hex, a text panel appears below the fate chart summarizing the preview unit's projected fate:
+- Objective contesting (which objectives, which turns)
+- Combat partners (who it fights)
+- Survival or elimination (and which turn)
+- VP impact (score delta from this placement)
+
 ## Animation behavior — CONFIRMED
 - Loops Turn 0 → 1 → 2 → ... → 10 → back to 0, forever
 - TURN_DURATION ~0.6s per frame
@@ -96,15 +156,17 @@ NO separate BATTLE phase. Animation is always running.
 - Hover leaves zone or no hover: show confirmed_sim on loop
 - Any change (hover move, unit placed): recalc sim, restart anim_turn = 0
 
-## Two simulation states
+## Two simulation states + diff
 - `confirmed_sim`: simulate() with all placed units so far
 - `preview_sim`: simulate() with placed units + hypothetical hover unit
+- `preview_diff`: `_compute_sim_diff()` compares confirmed vs preview — tracks fate changes, score delta, objective flips
 - Draw preview_sim when hovering valid deploy hex; else draw confirmed_sim
 - Preview unit token drawn as ghost (50% opacity) on top
+- Diff indicators: fate chart row tints (green/red/yellow), score +/- delta, objective hex glow
 
 ## Simulation architecture
 - `simulate(all_units: Array) -> Dictionary`
-  - `all_units` = array of {player, col, row, unit_type} dicts for every unit in the sim
+  - `all_units` = array of {player, col, row, unit_type, start_turn (optional)} dicts for every unit in the sim
   - returns `{ timelines, units, combat, obj_control, vp_per_turn, unit_names, unit_obj, unit_kills, unit_dmg, combat_log, obj_ctrl_history, unit_snapshots }`
   - `timelines[uid]` = `Array[Vector2i]` of positions, index 0 = initial
   - `units[uid]` = final state dict `{ player, col, row, unit_type, models, eliminated, elim_turn }`
@@ -120,7 +182,7 @@ NO separate BATTLE phase. Animation is always running.
 
 ## Additional confirmed rules
 - Friendly units block each other's paths (same as enemy blocking)
-- Army = 100 point budget. Infantry = 10pts, Cavalry = 20pts. Max 8 units.
+- Army = 8 units, free pick from 5 types (point budget tabled for later).
 - Tie at end of turn 10 = draw (no winner)
 - VP scoring: 5 VP per objective held per turn (persistent control)
 - Camera: no auto-pan during animation. Auto-pan to active player's zone when their deploy turn starts.

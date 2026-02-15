@@ -16,6 +16,24 @@ Once all units are placed, the player watches the final battle as a looping repl
 
 ---
 
+## Design Philosophy: RNG as Terrain, Not Chaos
+
+**RNG chaos is the enemy of this game.** Randomness exists to create unique, interesting game states — not to make the player feel helpless. Every design decision must reinforce this principle:
+
+1. **RNG creates the landscape, the player navigates it.** Dice rolls produce a specific future for a given board state. The player's job is to read that future and change it by placing units intelligently.
+
+2. **Outcomes must be predictable and stable.** If a player hasn't changed anything near a fight, that fight's outcome must not change. The per-combat RNG seed ensures this — only local changes produce local effects. The player can trust what they see.
+
+3. **The player changes outcomes through strategy, not luck.** Placing a unit near a fight changes its seed, producing a different result. The player previews this before committing. They are not gambling — they are solving a puzzle with known information.
+
+4. **No hidden randomness.** The preview shows the exact future. What you see is what you get. The player never feels cheated because they chose this outcome with full knowledge.
+
+5. **Variety without volatility.** Different deployment configurations produce meaningfully different battles, but small changes produce proportional effects. Moving a unit one hex over doesn't flip the entire board — it shifts the nearby fight, which may cascade naturally.
+
+This philosophy applies to ALL future features: new unit types, abilities, terrain effects, etc. If a feature introduces randomness, it must be previewable, local, and player-controllable.
+
+---
+
 ## The Deployment Loop (Core Interaction)
 
 ### Alternating placement
@@ -27,7 +45,8 @@ Once all units are placed, the player watches the final battle as a looping repl
 - When a player **hovers** their cursor over a valid hex in their deployment zone:
   - The **entire simulation reruns** from scratch with that unit hypothetically placed there
   - This includes ALL units already confirmed by both players reacting to the new placement
-  - Full butterfly effect: enemy units reroute, friendly units react, combat outcomes change
+  - Local butterfly effect: combat outcomes only change when the new unit enters within 2 hexes of an existing fight; distant fights are unaffected
+  - The cascade is the game: changed fight → unit survives/dies → objectives flip → score shifts
   - The result plays as a **looping animation** (see Battle Animation below)
   - The preview unit is visually distinct (ghost/dimmer) from confirmed units
 - Moving the cursor to a different hex **immediately** recalculates and replays a different future
@@ -38,6 +57,25 @@ Once all units are placed, the player watches the final battle as a looping repl
 - The full battle animation loops continuously
 - **CONFIRMED: Timeline scrubber** — a slider the player can drag to freely scrub through turns 0–10 for review
 - **CONFIRMED: Replay mode** — a REPLAY button appears; clicking it enters a clean turn-by-turn view with no ghost trails. Left/Right arrows navigate turns, Escape exits back to the looping animation.
+
+---
+
+## Visual Philosophy: Units Are Spacetime Worms
+
+> Inspired by **block universe theory** (eternalism): all of time exists simultaneously as a 4D object. We experience it one slice at a time, but the whole "loaf" is already there. A person isn't a 3D thing that moves through time — they ARE a 4D shape stretching from birth to death. See: [spacetime sausage](https://4dtime.space/spacetime-sausage.html), [eternalism](https://en.wikipedia.org/wiki/Eternalism_(philosophy_of_time)), [perdurantism](https://en.wikipedia.org/wiki/Perdurantism).
+
+**In this game, a unit is not "a token that moves across the board." A unit IS its entire trajectory through time — a spacetime worm.** The ghost trail isn't decoration or history. It IS the unit. The "current position" is just one cross-section of the worm that the animation happens to be scanning through.
+
+This is the core visual identity of the game:
+- **The animation loop scans through slices** of the 4D battlefield, like cutting through a salami
+- **Ghost trails are the actual unit** — the full worm visible all at once
+- **The player reshapes spacetime worms** by placing units that alter the 4D landscape
+- **FULL view mode** should make units look like continuous objects stretching through time (thick trails, high opacity, connected path lines) — not discrete dots at different positions
+- **CLEAN/CHANGED modes** are analytical tools that show slices or diffs, but FULL mode shows the true nature of the game
+
+The visual goal is closer to Marcel Duchamp's "Nude Descending a Staircase" than to a chess replay — overlapping forms that create a unified shape from many time-positions.
+
+**Every visual decision should reinforce this metaphor.** Trail rendering, token shapes, opacity gradients, animation speed — all should make units feel like one continuous object, not a thing that "was here, then here, then here."
 
 ---
 
@@ -62,18 +100,21 @@ Turn 0 (initial positions)
   → Turn 10
   → [loop back to Turn 0]
 ```
-- Each turn frame should be visible for approximately **0.5–0.8 seconds** — fast enough to feel like a battle, slow enough to read unit positions
+- **Normal modes (CLEAN/CHANGED):** ~0.8 seconds per turn — slow enough to read individual positions
+- **FULL mode:** ~0.3 seconds per turn (2x faster) — the scanner sweeps quickly, emphasizing the spacetime worm shape over individual positions
 - The loop is **continuous** — it does not stop between deployment clicks
 - When a new unit is placed or the hover preview changes, the simulation recalculates and the animation **restarts from Turn 0** with the new data
 
 ### Why this is critical
 The player's entire puzzle is: "If I place my unit here, how does that change where the enemy goes, and how does THAT affect where my other units go?" They can only answer this by watching the motion. A static snapshot is not enough — units need to be seen **moving** toward objectives, **pivoting** when they detect an enemy, **stopping** to fight. The animation is the game.
 
-### Ghost trails
+### Ghost trails — THE SPACETIME WORM
 - Each unit leaves a semi-transparent echo at every turn position simultaneously
-- This gives the "all time at once" aesthetic even during animation
-- Trail opacity: `0.10 + (turn_index / 5) * 0.50` (very faint for early turns, more visible for recent)
-- Trail stops at elimination turn
+- **These echoes ARE the unit** — the full 4D shape rendered on a 2D board
+- The goal is a continuous, worm-like form — not discrete dots
+- Trail opacity gradient: faint at birth, solid at death (or current turn)
+- **FULL mode enhanced trails:** thicker path lines (4px), higher ghost opacity (0.25–0.75), stronger hex highlights — making the worm shape more prominent
+- Trail stops at elimination turn (the worm ends where the unit dies)
 
 ---
 
@@ -122,26 +163,45 @@ Units act deterministically each turn using this priority order:
 
 ## Combat System
 
-Combat resolves at the end of each movement phase for all pairs of opposing units within combat range.
+Combat resolves after movement in two phases: **Ranged** then **Melee**. Each model shoots OR melees per turn, not both.
 
-### Sequence (simultaneous — both sides attack at the same time)
+### Ranged Phase (one-way)
+
+Units with a `range` stat (Artillery, Wizard) fire if no enemy is within COMBAT_RANGE (silenced in melee).
 
 ```
-For each model in the attacking unit, for each of its Attacks:
-  1. HIT ROLL:   roll 1d6 >= unit.accuracy  → hit
-  2. WOUND ROLL: roll 1d6 >= unit.wound     → wound
-  3. ARMOR SAVE: defender rolls 1d6 >= (unit.armor - attacker.rend)
-                 → on SUCCESS: wound blocked
-                 → on FAIL: damage applied
-  4. DAMAGE:     each failed save deals unit.damage wounds to the target unit
-                 wounds carry over between models (2 wounds = 1 infantry model dead)
+For each ranged unit not in melee:
+  Find target (artillery: furthest in range 20; wizard: nearest in range 8)
+  For each model × ranged_attacks:
+    1. HIT ROLL:   roll 1d6 >= ranged_hit
+    2. WOUND ROLL: roll 1d6 >= ranged_wound
+    3. ARMOR SAVE: defender rolls 1d6 >= (defender.armor + ranged_rend)
+    4. DAMAGE:     wounds per failed save = ranged_damage
+  Target does NOT return fire (one-way)
 ```
 
-Combat is **simultaneous**: both units' model counts are snapshotted before damage is applied, so a wiped unit still deals its attacks.
+### Melee Phase (simultaneous)
 
-**CONFIRMED:** Partial damage carries over between turns. Each unit tracks accumulated wounds. When wounds >= hp_per_model, a model is removed and the remainder rolls over.
+All pairs of opposing units within COMBAT_RANGE (2 hex) fight simultaneously.
 
-**CONFIRMED:** A unit fights the **nearest single enemy** within combat range each turn. If multiple enemies are in range, only the closest is engaged.
+```
+For each model × melee_attacks (or regular attacks for infantry/cavalry/DS):
+  1. HIT ROLL:   roll 1d6 >= melee_hit  (or regular hit)
+  2. WOUND ROLL: roll 1d6 >= melee_wound (or regular wound)
+  3. ARMOR SAVE: defender rolls 1d6 >= (defender.armor + melee_rend)
+  4. DAMAGE:     wounds per failed save = melee_damage
+Both sides' model counts are snapshotted before damage is applied.
+```
+
+### Wizard Retreat Phase
+
+After melee, any wizard that was in melee and survived moves 5 hex away, choosing the hex that maximizes minimum distance from all other units and objectives.
+
+### Wound Tracking
+
+Partial damage carries over between turns. Each unit tracks accumulated wounds. When wounds >= hp_per_model, a model is removed and the remainder rolls over.
+
+**CONFIRMED:** A unit fights the **nearest single enemy** within combat range each turn.
 
 ---
 
@@ -157,8 +217,11 @@ Combat is **simultaneous**: both units' model counts are snapshotted before dama
 | Accuracy | 3+    | hit on 3 or higher           |
 | Wound    | 3+    | wound on 3 or higher         |
 | Rend     | 1     | subtracts from armor save    |
-| Armor    | 4+    | save on 4 or higher (modified by rend → 5+) |
+| Armor    | 4+    | save on 4 or higher          |
 | Damage   | 1     | wounds per failed save       |
+| Obj Weight | 1.0 | full capture weight          |
+
+**AI:** Move toward nearest unclaimed/enemy objective. If all friendly, advance toward nearest enemy.
 
 ### Cavalry
 | Stat     | Value | Notes                        |
@@ -170,12 +233,87 @@ Combat is **simultaneous**: both units' model counts are snapshotted before dama
 | Accuracy | 4+    | hit on 4 or higher           |
 | Wound    | 3+    | wound on 3 or higher         |
 | Rend     | 2     | subtracts from armor save    |
-| Armor    | 3+    | save on 3 or higher (modified by rend → 5+) |
+| Armor    | 3+    | save on 3 or higher          |
 | Damage   | 2     | wounds per failed save       |
+| Obj Weight | 1.0 | full capture weight          |
 
-**CONFIRMED:** Both Infantry and Cavalry are included in the Godot prototype.
+**AI:** Hunt nearest enemy unit. If no enemies in range, move toward objectives.
 
-**CONFIRMED:** Free pick from roster. Players select 8 units from the available types before deployment. Army selection screen required.
+### Artillery
+| Stat     | Value | Notes                        |
+|----------|-------|------------------------------|
+| Models   | 1     | single model                 |
+| HP       | 12    | tough but slow               |
+| Move     | 4     | hexes per turn               |
+| Ranged Attacks | 4 | per model                  |
+| Ranged Accuracy | 4+ | hit on 4 or higher        |
+| Ranged Wound | 2+ | wound on 2 or higher        |
+| Ranged Rend | 1   | subtracts from armor save    |
+| Ranged Damage | 3 | wounds per failed save       |
+| Range    | 20    | hex range for shooting       |
+| Melee Attacks | 1 | weak in melee               |
+| Melee Hit | 5+   | poor melee accuracy          |
+| Melee Wound | 4+ | poor melee wounding          |
+| Melee Rend | 0   | no armor penetration         |
+| Melee Damage | 1 | minimal melee output         |
+| Armor    | 5+    | light armor                  |
+| Obj Weight | 0.0 | cannot capture objectives    |
+
+**AI:** If ranged target exists within 20 hexes, stay and shoot (targets furthest enemy). If no ranged target, walks straight forward toward enemy deployment side (does NOT chase objectives). **Silenced in melee** — cannot shoot when enemy is within COMBAT_RANGE. **Cannot capture objectives** (obj_weight 0.0).
+
+### Deep Strike
+| Stat     | Value | Notes                        |
+|----------|-------|------------------------------|
+| Models   | 6     | 6 figures per unit           |
+| HP       | 2     | wounds per model             |
+| Move     | 8     | hexes per turn               |
+| Attacks  | 2     | per model                    |
+| Accuracy | 4+    | hit on 4 or higher           |
+| Wound    | 4+    | wound on 4 or higher         |
+| Rend     | 0     | no armor penetration         |
+| Damage   | 1     | wounds per failed save       |
+| Armor    | 4+    | save on 4 or higher          |
+| Obj Weight | 0.5 | half capture weight          |
+
+**Delayed entry:** Deployed anywhere on the map (must be 9+ hexes from all enemies at chosen arrival turn). Player selects arrival turn (T2–T8) during deployment. Unit materializes on that turn.
+
+**AI:** Same as infantry (objective-focused) once arrived.
+
+### Wizard
+| Stat     | Value | Notes                        |
+|----------|-------|------------------------------|
+| Models   | 5     | 5 figures per unit           |
+| HP       | 2     | wounds per model             |
+| Move     | 5     | hexes per turn               |
+| Ranged Attacks | 2 | per model                  |
+| Ranged Accuracy | 3+ | hit on 3 or higher        |
+| Ranged Wound | 2+ | wound on 2 or higher        |
+| Ranged Rend | 0   | no armor penetration         |
+| Ranged Damage | 1 | wounds per failed save       |
+| Range    | 8     | hex range for shooting       |
+| Melee Attacks | 1 | weak in melee               |
+| Melee Hit | 5+   | poor melee accuracy          |
+| Melee Wound | 5+ | poor melee wounding          |
+| Melee Rend | 0   | no armor penetration         |
+| Melee Damage | 1 | minimal melee output         |
+| Armor    | 5+    | light armor                  |
+| Retreat  | 5     | hex retreat after melee      |
+| Obj Weight | 0.5 | half capture weight          |
+
+**AI:** Kites at range 8 — approaches nearest enemy within 8 hex but avoids entering COMBAT_RANGE (2 hex). After taking melee combat, retreats 5 hex away from all units/objectives. Targets nearest enemy in range. If no enemies in range, moves toward nearest unclaimed/enemy objective.
+
+### Universal Rules
+- Each model shoots OR melees per turn, not both
+- Ranged attacks are one-way (target does not return fire)
+- Melee is simultaneous (both sides attack)
+- Units with both ranged and melee profiles use melee stats when in COMBAT_RANGE
+
+**CONFIRMED:** All 5 unit types implemented. Free pick, 8 units per side, no point budget (tabled for later).
+
+### Future Unit Concept: Interceptor / Slicer
+> **Not yet implemented — design exploration only.**
+>
+> A unit type that interacts with other units' **spacetime worm shapes** rather than their current position. It blocks or redirects the 4D trajectory of enemy units, forcing them to reroute through spacetime. This is the mechanical payoff for the spacetime worm visual language — the player must already be thinking in terms of worm shapes for this unit to make sense. Implementation depends on the worm rendering being visually legible first.
 
 ---
 
@@ -189,10 +327,15 @@ Combat is **simultaneous**: both units' model counts are snapshotted before dama
 - Trail **stops** at the turn the unit was eliminated (no ghost trail past death)
 
 ### Unit Tokens
-- Shield shape with cross emblem
+- **Infantry:** Shield shape with cross emblem
+- **Cavalry:** Diamond/kite shape
+- **Artillery:** Trapezoid shape
+- **Deep Strike:** 6-pointed star burst
+- **Wizard:** Circle/orb shape
 - Blue for P1, Red for P2
 - Model count shown on active (current-turn) token
-- Ghost tokens (trail history): same shield, no model count, lower opacity
+- Ghost tokens (trail history): same shape, no model count, lower opacity
+- Deep strike units off-map before arrival turn (not drawn)
 
 ### Combat Markers
 - Crossed swords drawn at the midpoint between two fighting units
@@ -209,48 +352,96 @@ Combat is **simultaneous**: both units' model counts are snapshotted before dama
 - Preview trail shown as ghost (dimmer) while hovering
 - Confirmed units shown at full opacity
 - Opponent's confirmed units visible (so you can react to their placement)
+- **Preview clutter reduction:** During hover preview, units whose simulation is unaffected by the previewed placement are "frozen" — drawn statically at their final position with no trails, paths, or animation. Only affected units (whose timelines changed) get the full animated treatment. This makes it immediately clear what the placement changes.
 - **[NEED DIRECTION]:** During P2's deployment turn, are P1's confirmed trails visible on the board? Assume yes — the whole board is visible at all times.
+
+### View Modes (Keys 1–4)
+During deployment, the player can toggle between four view modes to control information density:
+
+| Key | Mode | Description |
+|-----|------|-------------|
+| 1 | CLEAN | All units shown at final position only. The preview unit gets a full timeline (path highlights, trail, ghosts). Ideal for reading the board at a glance. |
+| 2 | CHANGED | Full timelines for units whose fate changed due to the current preview placement, plus the preview unit. Unaffected units shown at final position. Default analytical view. |
+| 3 | FULL | Full timelines for ALL units simultaneously at 2x speed. Enhanced "snail trail" visuals (thicker lines, higher opacity) make units look like spacetime worms — continuous objects stretching through time. This is the game's true visual identity. |
+| 4 | FINAL | Static end-state snapshot. All units at turn 10 positions (or elimination positions), final objective control, final score. No animation. Quick reference for "who won where." |
+
+Combat sparks (crossed swords) are filtered per view mode — they only appear for fights where at least one participant has a visible timeline. This prevents confusing spark markers in CLEAN mode.
+
+### Narrative Preview Panel
+When hovering a valid deploy hex, a narrative text panel appears below the unit fate chart on the right side. It summarizes the preview unit's projected fate in plain text:
+- Which objectives it contests and during which turns
+- Which enemy units it fights
+- Whether it survives or is eliminated (and on which turn)
+- The VP score delta from this placement
+
+This gives the player a quick textual summary without needing to parse the visual timeline.
+
+### Visual Concern: Battlefield Clutter — ADDRESSED
+- With 16 units, simultaneous ghost trails, path lines, combat sparks, and objective highlights, the map can be visually overwhelming
+- **View mode system** (keys 1–4) gives the player full control over information density
+- **Combat spark filtering** prevents irrelevant fight markers from cluttering quieter view modes
+- **Narrative preview panel** provides textual alternative to visual parsing
+- **Font sizes increased ~30%** for readability on high-resolution monitors
+- The freeze-unaffected-units system during preview remains active in CHANGED mode
 
 ---
 
 ## RNG & Determinism
 
-- Simulation uses a **seeded RNG** (seed = 42 currently hardcoded)
-- **[NEED DIRECTION]:** How should the seed be determined?
-  - Option A: Fixed seed always (fully deterministic, same game every time — useful for testing)
-  - Option B: New random seed each match start
-  - Option C: Seed derived from placement order/positions (so hovering a different hex shows a genuinely different future)
-  - Original GDD intended Option C: moving the unit to a different hex generates a new seed
-- **CONFIRMED:** Preview shows exact dice results for the seed derived from the placement position. Moving to a different hex recalculates with a different seed, showing a genuinely different future. This is the core tension of the game.
+> See **"Design Philosophy: RNG as Terrain, Not Chaos"** above. Every RNG decision must be previewable, local, and player-controllable.
+
+- **Per-combat seeding**: Each fight between two units gets its own RNG seed derived from:
+  - The pair identity (attacker + defender indices)
+  - The current turn number
+  - Positions of all non-eliminated units within 2 hexes of either combatant
+- **Local butterfly effect**: Moving or adding a unit only changes combat outcomes for fights within 2 hexes. Distant fights are completely unaffected.
+- **Preview diff indicators**: When hovering a deployment hex, the UI highlights what changed vs the confirmed state:
+  - Unit fate chart: green (now survives), red (now dies), yellow (shifted death turn)
+  - Scoreboard: +/- VP delta per player
+  - Map: golden glow on objectives whose control flipped
+- **CONFIRMED:** Preview shows exact dice results. Moving to a different hex recalculates with a different seed for nearby fights, showing a genuinely different future. This is the core tension of the game.
 
 ---
 
 ## Turn Structure
 
 ```
-DEPLOYMENT PHASE (alternating, all units)
+DEPLOYMENT PHASE
+  1. Unit selection popup (5 types)
+  2. [Deep Strike only] Turn selector (T2-T8) + legal hex highlighting
+  3. Hover to preview, click to place
+  4. Alternate players, repeat until 8 units each
   ↓
-[Optional] PLAYBACK PHASE — animation of turns 1-5
-  ↓
-RESULT SCREEN — winner declared, option to restart
+DONE — animation loops, result HUD, REPLAY button
 ```
 
 Each simulated turn:
 ```
-1. MOVEMENT: all living units move (skipped if in combat)
-2. COMBAT: all pairs within combat range resolve simultaneously
-3. OBJECTIVE CHECK: evaluate control of each objective
+1. DEEP STRIKE ARRIVAL: units with start_turn == current turn materialize at deploy position
+2. MOVEMENT: per-type AI determines goal and unit walks toward it via A*
+   - Infantry: nearest unclaimed/enemy objective; if all friendly, nearest enemy
+   - Cavalry: nearest enemy; if none, objectives
+   - Artillery: stay if ranged target in range 20; else advance toward center
+   - Wizard: kite at range 8 (approach enemy but avoid COMBAT_RANGE); else objectives
+   - Deep Strike: same as infantry (once arrived)
+3. RANGED PHASE: artillery/wizard shoot if not in melee (one-way, target doesn't return fire)
+   - Artillery: targets furthest enemy within 20 hex
+   - Wizard: targets nearest enemy within 8 hex
+4. MELEE PHASE: all pairs within COMBAT_RANGE resolve simultaneously (melee profiles for artillery/wizard)
+5. WIZARD RETREAT: wizards that were in melee move 5 hex away from all units/objectives
+6. OBJECTIVE CHECK: weighted control (obj_weight × models per player within radius 2)
 ```
-
-**[NEED DIRECTION]:** Is there a Phase 3 playback animation (current Godot prototype has this), or is the game purely "all time at once" with no sequential playback?
 
 ---
 
 ## Scoring System — CONFIRMED
 
 - **Victory Points (VP):** 5 VP per objective held per turn
-- Persistent objective control: last team with majority models within radius 2 keeps it
-- Ties in presence = contested (no change in control)
+- Persistent objective control: weighted model count (obj_weight × models) within radius 2
+  - Infantry/Cavalry: weight 1.0 (full)
+  - Deep Strike/Wizard: weight 0.5 (half)
+  - Artillery: weight 0.0 (cannot capture)
+- Ties in weighted presence = contested (no change in control)
 - **10 turns total** — final score determines winner
 - Tie VP = draw
 
@@ -281,6 +472,11 @@ Each simulated turn:
 - Turn pips at bottom, progress bar at top
 - Navigation: Left/Right arrows, Escape to exit
 
+### Battle Summary
+- SUMMARY button appears next to REPLAY when game is DONE
+- Scrollable overlay showing structured report of the full battle
+- Close with X button in top-right corner
+
 ---
 
 ## Prototype Build Priority (Godot)
@@ -294,10 +490,15 @@ In order — do not skip ahead:
 5. ✅ Combat range 2 hexes
 6. ✅ Objective control logic and visual feedback
 7. ✅ Win condition evaluation (VP scoring, 10 turns)
-8. ✅ Cavalry unit type (Tab to toggle during deployment)
+8. ✅ Cavalry unit type
 9. ✅ VP Scoreboard, Unit Fate Chart, Combat Log
 10. ✅ Replay mode (turn-by-turn clean view)
-11. ⬜ Army selection / point costs
+11. ✅ Unit selection popup (non-reversible, 5 types)
+12. ✅ Artillery, Deep Strike, Wizard unit types
+13. ✅ Combat restructure: Ranged → Melee → Retreat phases
+14. ✅ Deep strike delayed entry (T2–T8, 9-hex exclusion)
+15. ✅ Weighted objective control
+16. ⬜ Point budget / army composition constraints
 
 ---
 
@@ -306,7 +507,7 @@ In order — do not skip ahead:
 | # | Question | Answer |
 |---|----------|--------|
 | 1 | Total units per player | **8 per player (16 total)** |
-| 2 | Preview sim includes enemy reactions | **Yes — full butterfly effect** |
+| 2 | Preview sim includes enemy reactions | **Yes — local butterfly effect (only nearby fights change)** |
 | 3 | Battle display mode | **Looping animation ~0.6s/turn + side panel scrubber** |
 | 4 | Grid size | **120 × 88, flat-top isometric (FFT style)** |
 | 5 | Objective control | **Most models within radius 2 at end of turn; ties = contested** |
@@ -314,10 +515,10 @@ In order — do not skip ahead:
 | 7 | Objective pathfinding priority | **Nearest unclaimed or enemy-held; ignore friendly-held; else advance to nearest enemy** |
 | 8 | Damage carry-over | **Yes — wound accumulation persists across turns** |
 | 9 | Multi-enemy combat | **Fight nearest single enemy only** |
-| 10 | Unit types in prototype | **Infantry + Cavalry both included** |
-| 11 | Army composition | **Point budget: 100pts. Infantry = 10pts, Cavalry = 20pts. Army selection screen required.** |
+| 10 | Unit types in prototype | **5 types: Infantry, Cavalry, Artillery, Deep Strike, Wizard** |
+| 11 | Army composition | **8 units, free pick from 5 types. Point budget tabled for later.** |
 | 12 | Objective radius visual | **Yes — subtle tint on radius 2 hexes** |
-| 13 | RNG seed method | **Derived from placement position (different hex = genuinely different outcome)** |
+| 13 | RNG seed method | **Per-combat seed from pair + turn + nearby unit positions (local butterfly effect)** |
 | 14 | Preview dice | **Exact — player sees the precise future for this seed** |
 | 15 | P2 control (prototype) | **Pass-the-mouse local 2-player. Future: online ELO matchmaking + AI** |
 | 16 | Victory tiebreaker | **Draw — no winner** |
