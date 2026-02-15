@@ -167,11 +167,11 @@ Combat resolves after movement in two phases: **Ranged** then **Melee**. Each mo
 
 ### Ranged Phase (one-way)
 
-Units with a `range` stat (Artillery, Wizard) fire if no enemy is within COMBAT_RANGE (silenced in melee).
+Units with a `range` stat (Artillery, Archer) fire if no enemy is within COMBAT_RANGE (silenced in melee).
 
 ```
 For each ranged unit not in melee:
-  Find target (artillery: furthest in range 20; wizard: nearest in range 8)
+  Find target (artillery: furthest in range 20; archer: nearest in range 8)
   For each model × ranged_attacks:
     1. HIT ROLL:   roll 1d6 >= ranged_hit
     2. WOUND ROLL: roll 1d6 >= ranged_wound
@@ -193,9 +193,9 @@ For each model × melee_attacks (or regular attacks for infantry/cavalry/DS):
 Both sides' model counts are snapshotted before damage is applied.
 ```
 
-### Wizard Retreat Phase
+### Archer Retreat Phase
 
-After melee, any wizard that was in melee and survived moves 5 hex away, choosing the hex that maximizes minimum distance from all other units and objectives.
+After melee, any archer that was in melee and survived moves 5 hex away, choosing the hex that maximizes minimum distance from all other units and objectives.
 
 ### Wound Tracking
 
@@ -279,7 +279,7 @@ Partial damage carries over between turns. Each unit tracks accumulated wounds. 
 
 **AI:** Same as infantry (objective-focused) once arrived.
 
-### Wizard
+### Archer
 | Stat     | Value | Notes                        |
 |----------|-------|------------------------------|
 | Models   | 5     | 5 figures per unit           |
@@ -331,7 +331,7 @@ Partial damage carries over between turns. Each unit tracks accumulated wounds. 
 - **Cavalry:** Diamond/kite shape
 - **Artillery:** Trapezoid shape
 - **Deep Strike:** 6-pointed star burst
-- **Wizard:** Circle/orb shape
+- **Archer:** Circle/orb shape
 - Blue for P1, Red for P2
 - Model count shown on active (current-turn) token
 - Ghost tokens (trail history): same shape, no model count, lower opacity
@@ -422,13 +422,13 @@ Each simulated turn:
    - Infantry: nearest unclaimed/enemy objective; if all friendly, nearest enemy
    - Cavalry: nearest enemy; if none, objectives
    - Artillery: stay if ranged target in range 20; else advance toward center
-   - Wizard: kite at range 8 (approach enemy but avoid COMBAT_RANGE); else objectives
+   - Archer: kite at range 8 (approach enemy but avoid COMBAT_RANGE); else objectives
    - Deep Strike: same as infantry (once arrived)
-3. RANGED PHASE: artillery/wizard shoot if not in melee (one-way, target doesn't return fire)
+3. RANGED PHASE: artillery/archer shoot if not in melee (one-way, target doesn't return fire)
    - Artillery: targets furthest enemy within 20 hex
-   - Wizard: targets nearest enemy within 8 hex
-4. MELEE PHASE: all pairs within COMBAT_RANGE resolve simultaneously (melee profiles for artillery/wizard)
-5. WIZARD RETREAT: wizards that were in melee move 5 hex away from all units/objectives
+   - Archer: targets nearest enemy within 8 hex
+4. MELEE PHASE: all pairs within COMBAT_RANGE resolve simultaneously (melee profiles for artillery/archer)
+5. ARCHER RETREAT: archers that were in melee move 5 hex away from all units/objectives
 6. OBJECTIVE CHECK: weighted control (obj_weight × models per player within radius 2)
 ```
 
@@ -439,7 +439,7 @@ Each simulated turn:
 - **Victory Points (VP):** 5 VP per objective held per turn
 - Persistent objective control: weighted model count (obj_weight × models) within radius 2
   - Infantry/Cavalry: weight 1.0 (full)
-  - Deep Strike/Wizard: weight 0.5 (half)
+  - Deep Strike/Archer: weight 0.5 (half)
   - Artillery: weight 0.0 (cannot capture)
 - Ties in weighted presence = contested (no change in control)
 - **10 turns total** — final score determines winner
@@ -472,6 +472,12 @@ Each simulated turn:
 - Turn pips at bottom, progress bar at top
 - Navigation: Left/Right arrows, Escape to exit
 
+### Timeline Shifted Popup (Post-Placement Feedback)
+- After each unit placement, a "TIMELINE SHIFTED" popup appears showing what changed
+- **Always includes placed unit's performance:** damage dealt (with per-target breakdown, e.g., "Deals 18 damage to I Ben (12), I Dan (6)"), kills, objectives held, survival status
+- Other units whose fates changed are listed with before/after narratives (prior timeline vs new timeline)
+- Ensures the player always gets immediate feedback on their placement, even when no other unit's fate changed
+
 ### Battle Summary
 - SUMMARY button appears next to REPLAY when game is DONE
 - Scrollable overlay showing structured report of the full battle
@@ -494,7 +500,7 @@ In order — do not skip ahead:
 9. ✅ VP Scoreboard, Unit Fate Chart, Combat Log
 10. ✅ Replay mode (turn-by-turn clean view)
 11. ✅ Unit selection popup (non-reversible, 5 types)
-12. ✅ Artillery, Deep Strike, Wizard unit types
+12. ✅ Artillery, Deep Strike, Archer unit types
 13. ✅ Combat restructure: Ranged → Melee → Retreat phases
 14. ✅ Deep strike delayed entry (T2–T8, 9-hex exclusion)
 15. ✅ Weighted objective control
@@ -515,7 +521,7 @@ In order — do not skip ahead:
 | 7 | Objective pathfinding priority | **Nearest unclaimed or enemy-held; ignore friendly-held; else advance to nearest enemy** |
 | 8 | Damage carry-over | **Yes — wound accumulation persists across turns** |
 | 9 | Multi-enemy combat | **Fight nearest single enemy only** |
-| 10 | Unit types in prototype | **5 types: Infantry, Cavalry, Artillery, Deep Strike, Wizard** |
+| 10 | Unit types in prototype | **5 types: Infantry, Cavalry, Artillery, Deep Strike, Archer** |
 | 11 | Army composition | **8 units, free pick from 5 types. Point budget tabled for later.** |
 | 12 | Objective radius visual | **Yes — subtle tint on radius 2 hexes** |
 | 13 | RNG seed method | **Per-combat seed from pair + turn + nearby unit positions (local butterfly effect)** |
@@ -527,3 +533,17 @@ In order — do not skip ahead:
 | 19 | Camera on deploy turn start | **Yes — auto-pan to active player's deployment zone** |
 | 20 | Timeline scrubber location | **Side panel with per-turn score and event log** |
 | 21 | Online architecture | **Prototype-first. Simulation is deterministic/seeded — good foundation for later.** |
+
+---
+
+## Developer Tools
+
+### Headless Simulation CLI
+Run the full simulation without the GUI for automated testing, batch experiments, or CI:
+```
+godot --headless --path tactics-godot res://HeadlessSim.tscn
+```
+- **Input:** `deploy.json` — specify army compositions (unit type, hex position) for both sides, or use `"random"` for AI placement
+- **Output:** `user://results.json` (structured: winner, scores, per-unit stats including damage targets), `user://combat_log.txt`, stdout summary
+- **Validation:** enforces deploy zones, hex overlap, unit types, max 8 per side
+- Files: `HeadlessSim.gd`, `HeadlessSim.tscn`, `deploy.json`

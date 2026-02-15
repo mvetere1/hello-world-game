@@ -43,8 +43,8 @@ TURNS              → simulation length (10)
 COMBAT_RANGE       → hexes away to trigger combat (2)
 P1/P2_DEPLOY_ROWS  → which rows each player can click to place units
 OBJECTIVES         → 3 hex coordinates in the middle of the map
-INFANTRY/CAVALRY/ARTILLERY/DEEP_STRIKE/WIZARD → stat blocks
-UNIT_TYPES         → ["infantry", "cavalry", "artillery", "deep_strike", "wizard"]
+INFANTRY/CAVALRY/ARTILLERY/DEEP_STRIKE/ARCHER → stat blocks
+UNIT_TYPES         → ["infantry", "cavalry", "artillery", "deep_strike", "archer"]
 C_BG, C_P1, etc.   → color constants
 ```
 
@@ -110,9 +110,9 @@ This is the **core game logic**. The `simulate()` function takes placed units an
 2. For each turn (10 turns):
    a. DEEP STRIKE ARRIVAL: units with start_turn == turn materialize
    b. MOVEMENT: per-type AI picks goal, unit walks via A*
-   c. RANGED PHASE: artillery/wizard shoot (one-way) if not in melee
+   c. RANGED PHASE: artillery/archer shoot (one-way) if not in melee
    d. MELEE PHASE: pairs within COMBAT_RANGE fight simultaneously
-   e. WIZARD RETREAT: wizards in melee move 5 hex away
+   e. ARCHER RETREAT: archers in melee move 5 hex away
    f. OBJECTIVE CHECK: weighted control calculation
 3. Return {timelines, units, combat, ...} — the full history
 ```
@@ -121,11 +121,11 @@ This is the **core game logic**. The `simulate()` function takes placed units an
 - **Infantry/Deep Strike:** nearest unclaimed/enemy objective; if all friendly, nearest enemy
 - **Cavalry:** hunt nearest enemy; if none, objectives
 - **Artillery:** stay if ranged target within 20; else walk straight forward toward enemy side (does NOT chase objectives)
-- **Wizard:** kite at range 8 (approach enemy but avoid COMBAT_RANGE 2); else objectives
+- **Archer:** kite at range 8 (approach enemy but avoid COMBAT_RANGE 2); else objectives
 
 #### Combat:
 **Ranged** (`_find_ranged_target`, `_roll_combat`): one-way attack, target doesn't return fire.
-**Melee** (`_roll_melee`): Warhammer-style simultaneous combat. Artillery/Wizard use melee_* stats.
+**Melee** (`_roll_melee`): Warhammer-style simultaneous combat. Artillery/Archer use melee_* stats.
 ```
 For each model × attacks:
   Roll d6 → hit?  (need >= hit stat)
@@ -150,7 +150,7 @@ Phase.DONE   → all units placed, animation loops, REPLAY button
 ```
 
 #### Deployment flow:
-1. Unit selection popup appears (5 types: Infantry, Cavalry, Artillery, Deep Strike, Wizard)
+1. Unit selection popup appears (5 types: Infantry, Cavalry, Artillery, Deep Strike, Archer)
 2. Player clicks type → `deploy_unit_type` set, popup closes
 3. [Deep Strike only] Turn selector popup (T2–T8) → legal hexes highlighted (9+ from all enemies at arrival turn)
 4. Hover in deploy zone → preview sim runs with ghost unit
@@ -178,6 +178,9 @@ Players switch view modes during deployment to control visual information densit
 - `preview_diff` — fate changes, score delta, objective flips between confirmed/preview
 
 This is what creates the live preview — as you move your mouse, the preview sim recalculates and you see all paths shift.
+
+#### Timeline shifted popup (after placement):
+After each unit is placed, a "TIMELINE SHIFTED" popup summarizes what changed. It always includes the placed unit's performance: damage dealt (with per-target breakdown), kills, objectives held, and survival. Other units whose fates changed are listed below with before/after comparisons.
 
 #### Camera controls (in `_input`):
 - **Scroll wheel** → zoom in/out (0.3x to 4.0x)
@@ -354,6 +357,49 @@ Three additional UI panels are drawn each frame:
 | Scoreboard | Top-right | `vp_per_turn` | Cumulative VP per turn, both players |
 | Unit Fate Chart | Below scoreboard | `unit_names`, `unit_obj`, `unit_kills`, `unit_dmg` | Per-unit stats: death turn, objective contribution, kills, damage |
 | Combat Log | Left side (340px) | `combat_log` (also saved to `user://combat_log.txt`) | Scrollable play-by-play, mouse wheel to scroll when cursor is over the panel |
+
+---
+
+## Headless Simulation (CLI Tool)
+
+You can run the full simulation without the Godot GUI using the headless sim tool. This is useful for automated testing, batch experiments, and CI pipelines.
+
+### Files
+| File | Purpose |
+|------|---------|
+| `HeadlessSim.gd` | Node script — reads `deploy.json`, runs `simulate()`, writes output |
+| `HeadlessSim.tscn` | Minimal scene with `HeadlessSim.gd` attached |
+| `deploy.json` | Deployment config — army compositions and hex positions |
+
+### How to run
+```powershell
+& 'C:\Users\bigto\Downloads\Godot_v4.6-stable_win64.exe\Godot_v4.6-stable_win64_console.exe' --headless --path 'C:\Users\bigto\Documents\GitHub\hello-world-game\tactics-godot' res://HeadlessSim.tscn
+```
+
+### deploy.json format
+```json
+{
+  "blue": [
+    { "unit_type": "infantry", "col": 60, "row": 70 },
+    { "unit_type": "cavalry", "col": 55, "row": 72 }
+  ],
+  "red": "random"
+}
+```
+- Each side is either an array of unit dicts (`unit_type`, `col`, `row`, optional `start_turn` for deep strike) or the string `"random"` for AI-generated placement.
+- **Validation**: deploy zones enforced, no hex overlap, valid unit types, max 8 units per side.
+
+### Output
+- **`user://results.json`** — structured JSON containing:
+  - `winner` — "blue", "red", or "draw"
+  - `scores` — final VP totals
+  - `score_by_turn` — cumulative VP per turn
+  - `obj_control_final` — which player holds each objective
+  - Per-unit stats: damage dealt, kills, objectives held, damage_targets (per-enemy breakdown), survival
+- **`user://combat_log.txt`** — full text combat log (same format as the in-game log)
+- **stdout** — one-line summary of the result
+
+On Windows, `user://` resolves to `C:\Users\bigto\AppData\Roaming\Godot\app_userdata\Hex Move Demo\`.
 
 ---
 

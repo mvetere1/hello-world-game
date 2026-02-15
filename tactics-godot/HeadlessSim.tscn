@@ -1,0 +1,6 @@
+[gd_scene format=4]
+
+[ext_resource type="Script" path="res://HeadlessSim.gd" id="1_script"]
+
+[node name="HeadlessSim" type="Node"]
+script = ExtResource("1_script")

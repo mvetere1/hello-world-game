@@ -14,10 +14,10 @@ Godot 4.6 hex tactics demo. Single-file architecture for now.
 - Main scene: `HexMoveDemo.tscn` → `HexMoveDemo.gd`
 - Grid: **120 cols × 88 rows**, **FLAT-TOP hex, isometric rendering** (FFT style)
 - Tileset: `res://../../assets/hex tactics assets/tileset hex tommy.png` (~48px per tile)
-- 8 units per player, free pick from 5 types: Infantry, Cavalry, Artillery, Deep Strike, Wizard
+- 8 units per player, free pick from 5 types: Infantry, Cavalry, Artillery, Deep Strike, Archer
 - Non-reversible unit selection popup before each placement (blind commitment)
-- Combat phases per turn: Movement → Ranged (one-way) → Melee (simultaneous) → Retreat (wizard)
-- Combat range: 2 hexes (melee); Artillery range 20, Wizard range 8
+- Combat phases per turn: Movement → Ranged (one-way) → Melee (simultaneous) → Retreat (archer)
+- Combat range: 2 hexes (melee); Artillery range 20, Archer range 8
 - Objectives: 3, controlled by most models within radius 2 per turn
 - RNG seed: per-combat (seeded from pair + turn + nearby unit positions within 2 hexes)
 
@@ -103,7 +103,7 @@ DONE    → all units placed; animation loops; result HUD shown; REPLAY button a
 NO separate BATTLE phase. Animation is always running.
 
 ### Deployment sub-flow
-1. Unit selection popup appears (5 buttons: Infantry, Cavalry, Artillery, Deep Strike, Wizard)
+1. Unit selection popup appears (5 buttons: Infantry, Cavalry, Artillery, Deep Strike, Archer)
 2. Player clicks a unit type → popup closes, deployment mode begins
 3. For Deep Strike: turn selector popup (T2–T8) appears first, then legal hexes highlighted
 4. Player hovers/clicks to place → unit locked in, next player's turn starts
@@ -111,11 +111,11 @@ NO separate BATTLE phase. Animation is always running.
 ### Per-turn simulation structure
 ```
 1. DEEP STRIKE ARRIVAL: units with start_turn == current turn materialize
-2. MOVEMENT: per-type AI (infantry→objectives, cavalry→enemies, artillery→stay/advance, wizard→kite, DS→objectives)
-3. RANGED PHASE: artillery/wizard shoot (one-way, skipped if in melee)
-4. MELEE PHASE: all pairs within COMBAT_RANGE fight simultaneously (melee profiles for artillery/wizard)
-5. WIZARD RETREAT: wizards that were in melee move 5 hex away from all units/objectives
-6. OBJECTIVE CHECK: weighted control (infantry/cavalry 1.0, DS/wizard 0.5, artillery 0.0)
+2. MOVEMENT: per-type AI (infantry→objectives, cavalry→enemies, artillery→stay/advance, archer→kite, DS→objectives)
+3. RANGED PHASE: artillery/archer shoot (one-way, skipped if in melee)
+4. MELEE PHASE: all pairs within COMBAT_RANGE fight simultaneously (melee profiles for artillery/archer)
+5. ARCHER RETREAT: archers that were in melee move 5 hex away from all units/objectives
+6. OBJECTIVE CHECK: weighted control (infantry/cavalry 1.0, DS/archer 0.5, artillery 0.0)
 ```
 
 ## Replay mode
@@ -149,6 +149,15 @@ When hovering a deploy hex, a text panel appears below the fate chart summarizin
 - Survival or elimination (and which turn)
 - VP impact (score delta from this placement)
 
+## Timeline Shifted Popup — Placed Unit Performance
+After unit placement, the "TIMELINE SHIFTED" popup now always includes the placed unit's performance summary immediately after the header (e.g., "Blue placed A Odo"). This line shows:
+- Total damage dealt with per-target breakdown (e.g., "Deals 18 damage to I Ben (12), I Dan (6)")
+- Kill count
+- Objectives held
+- Survival status
+
+Previously, if no other unit's fate changed, the popup only said "Timeline shifted slightly." Now the player always gets feedback about what their newly placed unit accomplishes.
+
 ## Animation behavior — CONFIRMED
 - Loops Turn 0 → 1 → 2 → ... → 10 → back to 0, forever
 - TURN_DURATION ~0.6s per frame
@@ -163,6 +172,28 @@ When hovering a deploy hex, a text panel appears below the fate chart summarizin
 - Draw preview_sim when hovering valid deploy hex; else draw confirmed_sim
 - Preview unit token drawn as ghost (50% opacity) on top
 - Diff indicators: fate chart row tints (green/red/yellow), score +/- delta, objective hex glow
+
+## Headless Simulation CLI Tool
+Three files enable running the simulation without the Godot GUI:
+- `HeadlessSim.gd` — Node script that reads `deploy.json`, instantiates HexMoveDemo, calls `simulate()`, writes results
+- `HeadlessSim.tscn` — Minimal scene with HeadlessSim.gd attached
+- `deploy.json` — Deployment config (army compositions + hex positions)
+
+**Usage:**
+```
+& 'C:\Users\bigto\Downloads\Godot_v4.6-stable_win64.exe\Godot_v4.6-stable_win64_console.exe' --headless --path 'C:\Users\bigto\Documents\GitHub\hello-world-game\tactics-godot' res://HeadlessSim.tscn
+```
+
+**Modes:**
+- Both sides specified: `deploy.json` has `"blue"` and `"red"` arrays of unit dicts
+- vs Random AI: set either side to `"random"` string instead of an array
+
+**Validation:** deploy zones, hex overlap, unit types, max 8 per side
+
+**Output:**
+- `user://results.json` — structured JSON with winner, scores, score_by_turn, obj_control_final, per-unit stats (damage, kills, objectives, damage_targets, survival)
+- `user://combat_log.txt` — full text combat log
+- stdout — summary line
 
 ## Simulation architecture
 - `simulate(all_units: Array) -> Dictionary`

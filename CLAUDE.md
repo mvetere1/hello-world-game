@@ -5,6 +5,8 @@
 ball-cannon/          HTML5 canvas ball cannon prototype
 tactics/              HTML5 canvas tactics prototype  (prototype.html)
 tactics-godot/        Godot 4.6 hex tactics demo      (main active project)
+  HeadlessSim.gd/tscn  Headless CLI sim tool (godot --headless res://HeadlessSim.tscn)
+  deploy.json           Deployment config for headless sim
 GAME-DESIGN-DOCUMENT.md
 ```
 
@@ -20,9 +22,9 @@ See `tactics-godot/CLAUDE.md` for all Godot-specific rules.
 - Flat-top hex grid, odd-q offset coordinates
 - 3 objectives in center, 10 turns, deployment zones top/bottom
 - 8 units per side, free pick from 5 unit types (no point budget yet)
-- Unit types: Infantry, Cavalry, Artillery, Deep Strike, Wizard
+- Unit types: Infantry, Cavalry, Artillery, Deep Strike, Archer
 - Non-reversible unit selection popup before each placement (blind commitment)
-- Combat phases: Movement → Ranged → Melee → Retreat (wizard)
+- Combat phases: Movement → Ranged → Melee → Retreat (archer)
 - Full combat: hit roll → wound roll → armor save (with rend) → damage
 - VP scoring: 5 VP per objective held per turn (persistent control)
 - Visual language: "all time at once" — ghost trails show full battle history simultaneously
@@ -32,6 +34,8 @@ See `tactics-godot/CLAUDE.md` for all Godot-specific rules.
 - Visual philosophy: units are spacetime worms (block universe / eternalism) — ghost trails ARE the unit, not history
 - Narrative preview panel: text summary of preview unit's projected fate
 - UI: scoreboard, unit fate chart, combat log, replay mode, battle summary
+- Timeline shifted popup always shows placed unit's performance (damage, kills, objectives, survival)
+- Headless simulation CLI: `HeadlessSim.tscn` runs sim without GUI, reads `deploy.json`, outputs `results.json`
 
 ## Workflow rules
 - ALWAYS analyze before implementing — for any gameplay or design change, analyze implications, present questions, and wait for answers before writing code

@@ -1,0 +1,22 @@
+{
+  "blue": [
+    {"unit_type": "infantry", "col": 6, "row": 17},
+    {"unit_type": "infantry", "col": 10, "row": 17},
+    {"unit_type": "infantry", "col": 18, "row": 17},
+    {"unit_type": "cavalry", "col": 14, "row": 18},
+    {"unit_type": "cavalry", "col": 22, "row": 18},
+    {"unit_type": "artillery", "col": 14, "row": 19},
+    {"unit_type": "archer", "col": 8, "row": 19},
+    {"unit_type": "deep_strike", "col": 12, "row": 16, "start_turn": 3}
+  ],
+  "red": [
+    {"unit_type": "infantry", "col": 6, "row": 2},
+    {"unit_type": "infantry", "col": 10, "row": 2},
+    {"unit_type": "infantry", "col": 18, "row": 2},
+    {"unit_type": "cavalry", "col": 14, "row": 1},
+    {"unit_type": "cavalry", "col": 22, "row": 1},
+    {"unit_type": "artillery", "col": 14, "row": 0},
+    {"unit_type": "archer", "col": 8, "row": 0},
+    {"unit_type": "deep_strike", "col": 12, "row": 3, "start_turn": 3}
+  ]
+}

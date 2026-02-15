@@ -50,7 +50,7 @@ const DEEP_STRIKE = {
 	"armor": 4,
 	"can_capture": true, "obj_weight": 0.5,
 }
-const WIZARD = {
+const ARCHER = {
 	"models": 5, "hp": 2, "move": 5,
 	"attacks": 2, "hit": 3, "wound": 2, "rend": 0, "damage": 1,
 	"range": 8,
@@ -58,7 +58,7 @@ const WIZARD = {
 	"armor": 5, "can_capture": true, "obj_weight": 0.5,
 	"retreat_move": 5,
 }
-const UNIT_TYPES = ["infantry", "cavalry", "artillery", "deep_strike", "wizard"]
+const UNIT_TYPES = ["infantry", "cavalry", "artillery", "deep_strike", "archer"]
 
 const UNIT_NAMES = [
 	"Ada", "Ben", "Cal", "Dan", "Eve", "Finn", "Gil", "Hal",
@@ -81,7 +81,7 @@ func _get_stats(unit_type: String) -> Dictionary:
 		"cavalry": return CAVALRY
 		"artillery": return ARTILLERY
 		"deep_strike": return DEEP_STRIKE
-		"wizard": return WIZARD
+		"archer": return ARCHER
 		_: return INFANTRY
 
 func _unit_prefix(unit_type: String) -> String:
@@ -89,7 +89,7 @@ func _unit_prefix(unit_type: String) -> String:
 		"cavalry": return "C"
 		"artillery": return "A"
 		"deep_strike": return "D"
-		"wizard": return "W"
+		"archer": return "W"
 		_: return "I"
 
 # ============================================================================
@@ -103,6 +103,17 @@ var cam_offset := Vector2.ZERO
 var cam_zoom   := 1.0
 
 var tile_tex: Texture2D = null   # single flat-top hex tile
+
+# Sprite sheets: unit_sprites[player][unit_type] = {"idle": Texture2D, "run": Texture2D}
+var unit_sprites := {}
+# Frame counts per sprite sheet (width / frame_height)
+const SPRITE_FRAMES := {
+	"infantry": {"idle": 8, "run": 6, "size": 192},
+	"cavalry":  {"idle": 12, "run": 6, "size": 320},
+	"artillery": {"idle": 6, "run": 4, "size": 192},
+	"deep_strike": {"idle": 8, "run": 6, "size": 192},
+	"archer":   {"idle": 6, "run": 4, "size": 192},
+}
 
 func hex_to_pixel(col: int, row: int) -> Vector2:
 	var x = HEX_SIZE * 1.5 * col
@@ -314,7 +325,7 @@ func _roll_combat(attacker: Dictionary, defender: Dictionary, rng: RandomNumberG
 	return wounds
 
 func _roll_melee(attacker: Dictionary, defender: Dictionary, rng: RandomNumberGenerator) -> int:
-	# Returns total wounds dealt in melee (uses melee profile for artillery/wizard)
+	# Returns total wounds dealt in melee (uses melee profile for artillery/archer)
 	var stats = _get_stats(attacker.get("unit_type", "infantry"))
 	var def_stats = _get_stats(defender.get("unit_type", "infantry"))
 	var atk = stats.get("melee_attacks", stats.attacks)
@@ -355,7 +366,7 @@ func _find_ranged_target(uid: int, units: Array, stats: Dictionary) -> int:
 				best_eid = eid
 	return best_eid
 
-func _pick_wizard_target(uid: int, units: Array) -> Vector2i:
+func _pick_archer_target(uid: int, units: Array) -> Vector2i:
 	var u = units[uid]
 	# Find nearest enemy within 8 hex
 	var nearest_eid := -1
@@ -375,9 +386,9 @@ func _pick_wizard_target(uid: int, units: Array) -> Vector2i:
 		if nearest_d >= 8:
 			return Vector2i(u.col, u.row)  # already at good range, stay
 		# Need to back up — find hex at distance ~8 from enemy
-		# For simplicity, move toward the enemy's position (they're within 8, wizard wants to stay at 8)
-		# Actually wizard wants to approach TO 8 if further, or retreat to 8 if closer
-		return Vector2i(e.col, e.row)  # move toward, step loop will stop per wizard avoidance logic
+		# For simplicity, move toward the enemy's position (they're within 8, archer wants to stay at 8)
+		# Actually archer wants to approach TO 8 if further, or retreat to 8 if closer
+		return Vector2i(e.col, e.row)  # move toward, step loop will stop per archer avoidance logic
 	# No enemy nearby — go to nearest objective
 	var best_obj := Vector2i(u.col, u.row)
 	var best_d2 := 999
@@ -432,10 +443,12 @@ func simulate(input_units: Array) -> Dictionary:
 	var unit_obj: Array = []
 	var unit_kills: Array = []
 	var unit_dmg: Array = []
+	var unit_dmg_to: Array = []   # per uid: {target_uid -> total_damage}
 	for _i in units.size():
 		unit_obj.append(["no", "no", "no"])
 		unit_kills.append(0)
 		unit_dmg.append(0)
+		unit_dmg_to.append({})
 
 	var combat_events: Array = []
 	for _t in TURNS:
@@ -521,26 +534,26 @@ func simulate(input_units: Array) -> Dictionary:
 				timelines[uid].append(Vector2i(u.col, u.row))
 				continue
 
-			# Wizard: avoid melee range, kite at range 8
-			elif ut == "wizard":
+			# Archer: avoid melee range, kite at range 8
+			elif ut == "archer":
 				# If not in melee, try to maintain range 8 from nearest enemy
 				if _nearest_enemy_in_range(uid, units, COMBAT_RANGE) < 0:
-					var wizard_goal = _pick_wizard_target(uid, units)
-					if wizard_goal == Vector2i(u.col, u.row):
-						timelines[uid].append(wizard_goal)
+					var archer_goal = _pick_archer_target(uid, units)
+					if archer_goal == Vector2i(u.col, u.row):
+						timelines[uid].append(archer_goal)
 						continue
 					var blocked := {}
 					for i in units.size():
 						if i == uid or units[i].eliminated: continue
 						if units[i].start_turn > 0 and turn < units[i].start_turn: continue
 						var oth = units[i]
-						if oth.col == wizard_goal.x and oth.row == wizard_goal.y: continue
+						if oth.col == archer_goal.x and oth.row == archer_goal.y: continue
 						blocked[hex_id(oth.col, oth.row)] = true
-					var path = find_path(u.col, u.row, wizard_goal.x, wizard_goal.y, blocked)
+					var path = find_path(u.col, u.row, archer_goal.x, archer_goal.y, blocked)
 					var move_steps = mini(stats.move, path.size())
 					for step_i in move_steps:
 						var nxt = path[step_i]
-						# Wizard avoids entering combat range
+						# Archer avoids entering combat range
 						var would_engage = false
 						for oid in units.size():
 							if oid == uid or units[oid].eliminated or units[oid].player == u.player: continue
@@ -628,6 +641,8 @@ func simulate(input_units: Array) -> Dictionary:
 			rng.seed = rseed
 			var dmg = _roll_combat(u, t, rng)
 			unit_dmg[uid] += dmg
+			if not unit_dmg_to[uid].has(tid): unit_dmg_to[uid][tid] = 0
+			unit_dmg_to[uid][tid] += dmg
 			var t_mdl_before = units[tid].models
 			_apply_wounds(tid, units, dmg, turn)
 			combat_events[turn].append({ "a": uid, "b": tid,
@@ -647,7 +662,7 @@ func simulate(input_units: Array) -> Dictionary:
 
 		# ---- Melee Phase ----
 		var fought := {}
-		var melee_participants := {}  # uid -> true, for wizard retreat tracking
+		var melee_participants := {}  # uid -> true, for archer retreat tracking
 		for uid in units.size():
 			var u = units[uid]
 			if u.eliminated: continue
@@ -674,11 +689,15 @@ func simulate(input_units: Array) -> Dictionary:
 				   hex_dist(nu.col, nu.row, e.col, e.row) <= COMBAT_RANGE:
 					fight_seed = fight_seed ^ (nu.col * 31 + nu.row * 97 + nu.player * 7919 + ni * 1009)
 			fight_rng.seed = fight_seed
-			# Use melee profile for artillery/wizard
+			# Use melee profile for artillery/archer
 			var dmg_to_e = _roll_melee(u, e, fight_rng)
 			var dmg_to_u = _roll_melee(e, u, fight_rng)
 			unit_dmg[uid] += dmg_to_e
 			unit_dmg[eid] += dmg_to_u
+			if not unit_dmg_to[uid].has(eid): unit_dmg_to[uid][eid] = 0
+			unit_dmg_to[uid][eid] += dmg_to_e
+			if not unit_dmg_to[eid].has(uid): unit_dmg_to[eid][uid] = 0
+			unit_dmg_to[eid][uid] += dmg_to_u
 			var u_mdl_before = units[uid].models
 			var e_mdl_before = units[eid].models
 			_apply_wounds(uid, units, dmg_to_u, turn)
@@ -705,10 +724,10 @@ func simulate(input_units: Array) -> Dictionary:
 				unit_kills[eid] += 1
 				combat_log.append("    >>> %s %s ELIMINATED <<<" % [u_tc, unit_names[uid]])
 
-		# ---- Wizard Retreat Phase ----
+		# ---- Archer Retreat Phase ----
 		for uid in units.size():
 			var u = units[uid]
-			if u.unit_type != "wizard": continue
+			if u.unit_type != "archer": continue
 			if u.eliminated: continue
 			if not melee_participants.has(uid): continue
 			# Retreat: move 5 hex away from all units and objectives
@@ -722,7 +741,7 @@ func simulate(input_units: Array) -> Dictionary:
 			# BFS to find reachable hexes within 5 steps
 			var visited := { hex_id(u.col, u.row): 0 }
 			var frontier := [Vector2i(u.col, u.row)]
-			var retreat_stats = _get_stats("wizard")
+			var retreat_stats = _get_stats("archer")
 			var max_steps = retreat_stats.get("retreat_move", 5)
 			for _step in max_steps:
 				var next_frontier: Array = []
@@ -812,7 +831,7 @@ func simulate(input_units: Array) -> Dictionary:
 			snap.append({ "models": u2.models, "eliminated": u2.eliminated, "col": u2.col, "row": u2.row })
 		unit_snapshots.append(snap)
 
-	return { "timelines": timelines, "units": units, "combat": combat_events, "obj_control": obj_control, "vp_per_turn": vp_per_turn, "unit_names": unit_names, "unit_obj": unit_obj, "unit_kills": unit_kills, "unit_dmg": unit_dmg, "combat_log": combat_log, "obj_ctrl_history": obj_ctrl_history, "unit_snapshots": unit_snapshots }
+	return { "timelines": timelines, "units": units, "combat": combat_events, "obj_control": obj_control, "vp_per_turn": vp_per_turn, "unit_names": unit_names, "unit_obj": unit_obj, "unit_kills": unit_kills, "unit_dmg": unit_dmg, "unit_dmg_to": unit_dmg_to, "combat_log": combat_log, "obj_ctrl_history": obj_ctrl_history, "unit_snapshots": unit_snapshots }
 
 func _apply_wounds(uid: int, units: Array, wounds: int, turn: int):
 	var u     = units[uid]
@@ -850,6 +869,12 @@ var ds_pending_hex    := Vector2i(-1, -1)  # hex clicked before turn selection
 var confirmed_sim := {}
 var preview_sim   := {}
 var preview_diff  := {}   # diff between confirmed and preview sims
+var showing_shift_summary := false
+var shift_summary_lines: Array = []   # Array of lines; each line = Array of {t: String, c: Color}
+var shift_summary_scroll := 0
+var shift_summary_timer := 0.0
+var shift_summary_diff := {}  # snapshot of preview_diff at placement time
+var shift_old_sim := {}       # snapshot of confirmed_sim before placement
 var hover_hex     := Vector2i(-1, -1)
 var deploy_heatmap := {}  # hex_id -> vp delta for active player
 var _heatmap_queue: Array = []  # hex coords still to compute
@@ -884,8 +909,44 @@ var cam_start     := Vector2.ZERO
 # READY
 # ============================================================================
 
+func _load_png_as_texture(path: String) -> Texture2D:
+	var img = Image.load_from_file(path)
+	if img == null:
+		return null
+	var tex = ImageTexture.create_from_image(img)
+	return tex
+
+func _load_unit_sprites():
+	var base_dir = ProjectSettings.globalize_path("res://sprites/")
+	var colors = {1: "blue", 2: "red"}
+	for p in colors:
+		unit_sprites[p] = {}
+		for ut in UNIT_TYPES:
+			var folder = base_dir + colors[p] + "/"
+			var idle_tex = _load_png_as_texture(folder + ut + "_idle.png")
+			var run_tex = _load_png_as_texture(folder + ut + "_run.png")
+			if idle_tex:
+				unit_sprites[p][ut] = {"idle": idle_tex, "run": run_tex}
+
+var _terrain_map: TileMapLayer = null
+var _cursor_hand: Texture2D = null
+var _cursor_nogo: Texture2D = null
+var _icon_sword: Texture2D = null
+var _icon_survive: Texture2D = null
+var _icon_death: Texture2D = null
+
 func _ready():
 	#tile_tex = load("res://assets/hex tactics assets/single tile.png")
+	_terrain_map = get_node_or_null("TerrainMap")
+	_load_unit_sprites()
+	_cursor_hand = _load_png_as_texture(ProjectSettings.globalize_path("res://assets/2d tinytowers assets/UI Elements/UI Elements/Cursors/Cursor_02.png"))
+	_cursor_nogo = _load_png_as_texture(ProjectSettings.globalize_path("res://assets/2d tinytowers assets/UI Elements/UI Elements/Cursors/Cursor_03.png"))
+	if _cursor_hand:
+		Input.set_custom_mouse_cursor(_cursor_hand, Input.CURSOR_ARROW, Vector2(16, 0))
+	var icon_dir = ProjectSettings.globalize_path("res://assets/2d tinytowers assets/UI Elements/UI Elements/Icons/")
+	_icon_sword = _load_png_as_texture(icon_dir + "Icon_05.png")
+	_icon_survive = _load_png_as_texture(icon_dir + "Icon_07.png")
+	_icon_death = _load_png_as_texture(icon_dir + "Icon_09.png")
 	var vp = get_viewport_rect().size
 	cam_zoom = 1.0
 	# Center the map in the viewport (offset layout)
@@ -1002,6 +1063,8 @@ func _input(event: InputEvent):
 			queue_redraw()
 			return
 		if selecting_unit or ds_selecting_turn:
+			if _cursor_hand:
+				Input.set_custom_mouse_cursor(_cursor_hand, Input.CURSOR_ARROW, Vector2(16, 0))
 			queue_redraw()
 			return
 		# Update hover
@@ -1009,17 +1072,44 @@ func _input(event: InputEvent):
 		var new_hover = h if is_valid_hex(h.x, h.y) else Vector2i(-1, -1)
 		if new_hover != hover_hex:
 			hover_hex = new_hover
-			if not selecting_unit and not ds_selecting_turn and _is_deploy_hex(new_hover):
+			if not selecting_unit and not ds_selecting_turn and not showing_shift_summary and _is_deploy_hex(new_hover):
 				_recalc_preview_sim()
 				anim_turn  = 0
 				anim_frac  = 0.0
-			elif not preview_sim.is_empty():
-				preview_sim = {}
-				preview_diff = {}
+				if _cursor_hand:
+					Input.set_custom_mouse_cursor(_cursor_hand, Input.CURSOR_ARROW, Vector2(16, 0))
+			else:
+				if not preview_sim.is_empty():
+					preview_sim = {}
+					preview_diff = {}
+				if _cursor_nogo and phase == Phase.DEPLOY and is_valid_hex(new_hover.x, new_hover.y) and not selecting_unit and not ds_selecting_turn:
+					Input.set_custom_mouse_cursor(_cursor_nogo, Input.CURSOR_ARROW, Vector2(32, 32))
+				elif _cursor_hand:
+					Input.set_custom_mouse_cursor(_cursor_hand, Input.CURSOR_ARROW, Vector2(16, 0))
 			queue_redraw()
+
+	# Shift summary scroll
+	if showing_shift_summary and event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			shift_summary_scroll = maxi(0, shift_summary_scroll - 1)
+			queue_redraw()
+			return
+		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			shift_summary_scroll += 1
+			queue_redraw()
+			return
 
 	# Left click handling
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		# Dismiss shift summary on click
+		if showing_shift_summary:
+			showing_shift_summary = false
+			shift_summary_diff = {}
+			selecting_unit = true
+			if _cursor_hand:
+				Input.set_custom_mouse_cursor(_cursor_hand, Input.CURSOR_ARROW, Vector2(16, 0))
+			queue_redraw()
+			return
 		if not drag_active:
 			# Check REPLAY / SUMMARY button click
 			if phase == Phase.DONE and not replay_mode:
@@ -1088,9 +1178,15 @@ func _handle_deploy_click(h: Vector2i):
 	else:
 		placed_p2.append(unit_data)
 
+	# Snapshot the diff and old sim before recalculating
+	shift_summary_diff = preview_diff.duplicate(true) if not preview_diff.is_empty() else {}
+	shift_old_sim = confirmed_sim.duplicate(true) if not confirmed_sim.is_empty() else {}
+	var placed_unit_name = ""
+	var placed_player = active_player
+	var placed_type = deploy_unit_type
+
 	# Reset deployment state for next turn
 	active_player = 2 if active_player == 1 else 1
-	selecting_unit = true
 	ds_selecting_turn = false
 	ds_arrival_turn = -1
 	ds_legal_hexes = {}
@@ -1099,14 +1195,27 @@ func _handle_deploy_click(h: Vector2i):
 	deploy_heatmap = {}
 	_heatmap_queue = []
 	_recalc_confirmed_sim()
-	_recalc_preview_sim()
+	preview_sim = {}
+	preview_diff = {}
 	anim_turn  = 0
 	anim_frac  = 0.0
+
+	# Get the placed unit's name from the new sim (it's the last unit added)
+	var new_names: Array = confirmed_sim.get("unit_names", [])
+	if not new_names.is_empty():
+		placed_unit_name = new_names[new_names.size() - 1]
 
 	var total_placed = placed_p1.size() + placed_p2.size()
 	if total_placed >= UNITS_PER_SIDE * 2:
 		phase = Phase.DONE
 		selecting_unit = false
+	else:
+		# Show shift summary before next unit selection
+		selecting_unit = false
+		shift_summary_lines = _build_shift_summary_lines(shift_summary_diff, shift_old_sim, confirmed_sim, placed_unit_name, placed_type, placed_player)
+		shift_summary_scroll = 0
+		showing_shift_summary = true
+		shift_summary_timer = 0.0
 	queue_redraw()
 
 func _handle_unit_select_click(pos: Vector2):
@@ -1206,7 +1315,7 @@ func _recalc_confirmed_sim():
 		f.close()
 
 func _recalc_preview_sim():
-	if phase != Phase.DEPLOY or selecting_unit or ds_selecting_turn: return
+	if phase != Phase.DEPLOY or selecting_unit or ds_selecting_turn or showing_shift_summary: return
 	if not _is_deploy_hex(hover_hex):
 		preview_sim = {}
 		preview_diff = {}
@@ -1342,6 +1451,233 @@ func _compute_sim_diff() -> Dictionary:
 		changed_uids[prev_tl.size() - 1] = true
 
 	return {"fate_changes": fate_changes, "score_delta": [p1_delta, p2_delta], "obj_flips": obj_flips, "changed_uids": changed_uids}
+
+func _unit_obj_hold_turns(sim: Dictionary, uid: int) -> Array:
+	# Returns [turns_obj1, turns_obj2, turns_obj3] — turns this unit was within
+	# capture range (2 hexes) of each objective while their team controlled it.
+	var tls: Array = sim.get("timelines", [])
+	var obj_hist: Array = sim.get("obj_ctrl_history", [])
+	var sim_units: Array = sim.get("units", [])
+	if uid >= tls.size() or uid >= sim_units.size():
+		return [0, 0, 0]
+	var u = sim_units[uid]
+	var trail: Array = tls[uid]
+	var result = [0, 0, 0]
+	for t in obj_hist.size():
+		var pos_idx = t + 1   # trail[0] is deploy position, trail[t+1] is after turn t
+		if pos_idx >= trail.size(): break
+		var pos = trail[pos_idx]
+		if pos == Vector2i(-1, -1): continue
+		for oi in OBJECTIVES.size():
+			if obj_hist[t][oi] == u.player:
+				if hex_dist(pos.x, pos.y, OBJECTIVES[oi].x, OBJECTIVES[oi].y) <= 2:
+					result[oi] += 1
+	return result
+
+func _unit_dmg_summary(sim: Dictionary, uid: int) -> Array:
+	# Returns array of {target_name, target_prefix, target_player, dmg} sorted by dmg desc
+	var dmg_to: Array = sim.get("unit_dmg_to", [])
+	var names: Array = sim.get("unit_names", [])
+	var sim_units: Array = sim.get("units", [])
+	if uid >= dmg_to.size(): return []
+	var pairs: Array = []
+	var dt: Dictionary = dmg_to[uid]
+	for tid in dt:
+		if dt[tid] <= 0: continue
+		var tname = names[tid] if tid < names.size() else "?"
+		var tprefix = _unit_prefix(sim_units[tid].unit_type) if tid < sim_units.size() else "?"
+		var tplayer = sim_units[tid].player if tid < sim_units.size() else 0
+		pairs.append({"name": tname, "prefix": tprefix, "player": tplayer, "dmg": dt[tid]})
+	pairs.sort_custom(func(a, b): return a.dmg > b.dmg)
+	return pairs
+
+func _team_color(player: int) -> Color:
+	return C_P1 if player == 1 else C_P2
+
+func _build_shift_summary_lines(diff: Dictionary, old_sim: Dictionary, new_sim: Dictionary, placed_name: String, placed_type: String, placed_player: int) -> Array:
+	# Returns Array of lines. Each line = Array of {t: String, c: Color} segments.
+	var C_WHITE = Color(0.9, 0.9, 0.9)
+	var C_YELLOW = Color(1.0, 0.9, 0.4)
+	var C_GRAY = Color(0.65, 0.65, 0.65)
+	var C_GREEN = Color(0.4, 1.0, 0.4)
+	var C_DEATH = Color(1.0, 0.35, 0.35)
+	var lines: Array = []
+
+	if diff.is_empty():
+		lines.append([{"t": "Timeline unchanged.", "c": C_GRAY}])
+		return lines
+
+	# Header: who was placed
+	var team_str = "Blue" if placed_player == 1 else "Red"
+	var p_prefix = _unit_prefix(placed_type)
+	lines.append([
+		{"t": team_str + " placed ", "c": C_WHITE},
+		{"t": p_prefix + " " + placed_name, "c": _team_color(placed_player)},
+	])
+
+	# Placed unit's own performance in the new sim
+	var new_all_units: Array = new_sim.get("units", [])
+	var placed_uid = new_all_units.size() - 1
+	if placed_uid >= 0:
+		var placed_dmg_pairs = _unit_dmg_summary(new_sim, placed_uid)
+		var placed_kills_arr: Array = new_sim.get("unit_kills", [])
+		var placed_kills = placed_kills_arr[placed_uid] if placed_uid < placed_kills_arr.size() else 0
+		var placed_dmg_total_arr: Array = new_sim.get("unit_dmg", [])
+		var placed_dmg_total = placed_dmg_total_arr[placed_uid] if placed_uid < placed_dmg_total_arr.size() else 0
+		var placed_u = new_all_units[placed_uid]
+
+		var perf_line: Array = [{"t": "  ", "c": C_GRAY}]
+		var has_content := false
+
+		# Damage dealt
+		if not placed_dmg_pairs.is_empty():
+			perf_line.append({"t": "Deals %d damage to " % placed_dmg_total, "c": C_GRAY})
+			for di in mini(3, placed_dmg_pairs.size()):
+				if di > 0:
+					perf_line.append({"t": ", ", "c": C_GRAY})
+				var dp = placed_dmg_pairs[di]
+				perf_line.append({"t": "%s %s (%d)" % [dp.prefix, dp.name, dp.dmg], "c": _team_color(dp.player)})
+			has_content = true
+
+		# Kills
+		if placed_kills > 0:
+			var kill_text = ", scoring %d kill%s" % [placed_kills, "s" if placed_kills > 1 else ""]
+			perf_line.append({"t": kill_text, "c": C_GREEN})
+			has_content = true
+
+		# Objectives held (for non-artillery)
+		var placed_obj_turns = _unit_obj_hold_turns(new_sim, placed_uid)
+		var obj_parts: Array = []
+		for oi in 3:
+			if placed_obj_turns[oi] > 0:
+				obj_parts.append("Obj %d for %d turns" % [oi + 1, placed_obj_turns[oi]])
+		if not obj_parts.is_empty():
+			var sep = ", " if has_content else ""
+			perf_line.append({"t": sep + "holds " + ", ".join(PackedStringArray(obj_parts)), "c": C_YELLOW})
+			has_content = true
+
+		# Survival
+		if has_content:
+			if placed_u.eliminated:
+				perf_line.append({"t": ", dies turn %d." % placed_u.elim_turn if placed_u.elim_turn > 0 else ", eliminated.", "c": C_DEATH})
+			else:
+				perf_line.append({"t": ", survives.", "c": C_GREEN})
+			lines.append(perf_line)
+		elif placed_u.eliminated:
+			perf_line.append({"t": "Dies on turn %d without dealing damage." % placed_u.elim_turn if placed_u.elim_turn > 0 else "Eliminated without dealing damage.", "c": C_DEATH})
+			lines.append(perf_line)
+		else:
+			perf_line.append({"t": "Survives but deals no damage.", "c": C_GRAY})
+			lines.append(perf_line)
+
+	# Per-unit fate narratives
+	var fate_changes: Array = diff.get("fate_changes", [])
+	var old_names: Array = old_sim.get("unit_names", [])
+	var old_units: Array = old_sim.get("units", [])
+	var new_units: Array = new_sim.get("units", [])
+	var new_names: Array = new_sim.get("unit_names", [])
+
+	for fc in fate_changes:
+		if fc.fate == "same": continue
+		var uid: int = fc.uid
+		if uid >= old_units.size() or uid >= new_units.size(): continue
+		var uname = old_names[uid] if uid < old_names.size() else "Unit %d" % uid
+		var u_old = old_units[uid]
+		var u_new = new_units[uid]
+		var u_prefix = _unit_prefix(u_old.unit_type)
+		var u_color = _team_color(u_old.player)
+
+		# --- Sentence 1: old timeline story ---
+		var line: Array = [{"t": u_prefix + " " + uname, "c": u_color}]
+		line.append({"t": " in the prior timeline", "c": C_GRAY})
+		var old_obj_turns = _unit_obj_hold_turns(old_sim, uid)
+		var obj_strs: Array = []
+		for oi in 3:
+			if old_obj_turns[oi] > 0:
+				obj_strs.append("Obj %d for %d turns" % [oi + 1, old_obj_turns[oi]])
+		if not obj_strs.is_empty():
+			line.append({"t": " held " + ", ".join(PackedStringArray(obj_strs)), "c": C_GRAY})
+
+		# Damage dealt in old timeline (with colored target names)
+		var old_dmg = _unit_dmg_summary(old_sim, uid)
+		if not old_dmg.is_empty():
+			var sep = ", " if not obj_strs.is_empty() else " "
+			line.append({"t": sep + "dealt ", "c": C_GRAY})
+			for di in mini(2, old_dmg.size()):
+				if di > 0:
+					line.append({"t": " and ", "c": C_GRAY})
+				var dp = old_dmg[di]
+				line.append({"t": "%d damage to " % dp.dmg, "c": C_GRAY})
+				line.append({"t": "%s %s" % [dp.prefix, dp.name], "c": _team_color(dp.player)})
+
+		# Old fate
+		if obj_strs.is_empty() and old_dmg.is_empty():
+			if u_old.eliminated:
+				line.append({"t": " died on turn %d.", "c": C_GRAY} if u_old.elim_turn > 0 else {"t": " was eliminated.", "c": C_GRAY})
+			else:
+				line.append({"t": " survived the battle.", "c": C_GRAY})
+		else:
+			if u_old.eliminated:
+				line.append({"t": " and died on turn %d." % u_old.elim_turn, "c": C_GRAY} if u_old.elim_turn > 0 else {"t": " and was eliminated.", "c": C_GRAY})
+			else:
+				line.append({"t": " and survived.", "c": C_GRAY})
+		lines.append(line)
+
+		# --- Line 2: new timeline change (verbose, narrative, indented) ---
+		var fate_color = C_DEATH if fc.fate == "now_dies" else (C_GREEN if fc.fate == "now_survives" else C_YELLOW)
+		var new_obj_turns = _unit_obj_hold_turns(new_sim, uid)
+
+		# Build objective change descriptions
+		var obj_changes: Array = []
+		for oi in 3:
+			var old_t = old_obj_turns[oi]
+			var new_t = new_obj_turns[oi]
+			if old_t == new_t: continue
+			if new_t > 0 and old_t == 0:
+				obj_changes.append("now holds Obj %d for %d turns" % [oi + 1, new_t])
+			elif new_t == 0 and old_t > 0:
+				obj_changes.append("losing Obj %d entirely" % (oi + 1))
+			elif new_t < old_t:
+				obj_changes.append("holding Obj %d for only %d turns instead of %d" % [oi + 1, new_t, old_t])
+			elif new_t > old_t:
+				obj_changes.append("holding Obj %d for %d turns instead of %d" % [oi + 1, new_t, old_t])
+
+		# Compose the "Now" sentence
+		var now_text := ""
+		if fc.fate == "now_dies":
+			now_text = "Now dies on turn %d" % u_new.elim_turn if u_new.elim_turn > 0 else "Now eliminated"
+			if not obj_changes.is_empty():
+				now_text += ", " + ", ".join(PackedStringArray(obj_changes))
+			now_text += "."
+		elif fc.fate == "now_survives":
+			now_text = "Now survives the battle"
+			if not obj_changes.is_empty():
+				now_text += ", " + ", ".join(PackedStringArray(obj_changes))
+			now_text += "."
+		else:  # shifted
+			now_text = "Now dies on turn %d instead of turn %d" % [u_new.elim_turn, u_old.elim_turn]
+			if not obj_changes.is_empty():
+				now_text += ", " + ", ".join(PackedStringArray(obj_changes))
+			now_text += "."
+
+		var now_line: Array = [{"t": "  ", "c": fate_color}, {"t": now_text, "c": fate_color}]
+		lines.append(now_line)
+
+	# Score summary line
+	var score_delta: Array = diff.get("score_delta", [0, 0])
+	var obj_flips: Array = diff.get("obj_flips", [])
+	var score_parts: Array = []
+	if score_delta[0] != 0 or score_delta[1] != 0:
+		score_parts.append("Score shift: Blue %+d, Red %+d" % [score_delta[0], score_delta[1]])
+	for oi in obj_flips.size():
+		if obj_flips[oi]:
+			score_parts.append("Obj %d flipped" % (oi + 1))
+	if not score_parts.is_empty():
+		lines.append([{"t": ", ".join(PackedStringArray(score_parts)), "c": C_YELLOW}])
+
+	if lines.size() <= 1:
+		lines.append([{"t": "Timeline shifted slightly.", "c": C_GRAY}])
+	return lines
 
 func _generate_battle_summary() -> Array:
 	var sim = confirmed_sim
@@ -1504,6 +1840,12 @@ func _process(delta: float):
 	if anim_frac >= 1.0:
 		anim_frac -= 1.0
 		anim_turn = (anim_turn + 1) % (TURNS + 1)
+	if showing_shift_summary:
+		shift_summary_timer += delta
+	# Sync terrain tilemap with custom camera
+	if _terrain_map:
+		_terrain_map.position = cam_offset
+		_terrain_map.scale = Vector2(cam_zoom, cam_zoom)
 	queue_redraw()   # every frame for smooth interpolation
 
 # ============================================================================
@@ -1512,7 +1854,8 @@ func _process(delta: float):
 
 func _draw():
 	var vp = get_viewport_rect().size
-	draw_rect(Rect2(Vector2.ZERO, vp), C_BG)
+	if not _terrain_map:
+		draw_rect(Rect2(Vector2.ZERO, vp), C_BG)
 
 	if replay_mode:
 		_draw_replay()
@@ -1545,6 +1888,8 @@ func _draw():
 		for c in COLS:
 			_draw_tile(c, r)
 
+
+
 	if not draw_sim.is_empty():
 		_draw_sim(draw_sim, use_preview)
 
@@ -1554,6 +1899,10 @@ func _draw():
 	_draw_combat_log()
 	if use_preview:
 		_draw_preview_narrative(draw_sim)
+
+	# Shift summary bar at bottom
+	if showing_shift_summary and not shift_summary_lines.is_empty():
+		_draw_shift_summary()
 
 	# Overlay popups (drawn last, on top)
 	if show_summary:
@@ -1576,7 +1925,7 @@ func _draw_tile(col: int, row: int):
 		var th = HEX_SIZE * 2.2 * cam_zoom   # face + small wall extension
 		var dest = Rect2(center - Vector2(tw * 0.5, th * 0.35), Vector2(tw, th))
 		draw_texture_rect(tile_tex, dest, false)
-	else:
+	elif not _terrain_map:
 		draw_colored_polygon(corners, C_FIELD)
 
 	# Outline
@@ -1668,13 +2017,13 @@ func _draw_unit_final(uid: int, final_units: Array, timelines: Array, is_ghost: 
 	else:
 		_draw_unit_token(center, u.player, u.models, u.unit_type, is_ghost, alpha)
 
-func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, combat_ev: Array, display_turn: int, is_preview_unit: bool, snail_trail: bool = false):
+func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, combat_ev: Array, display_turn: int, is_preview_unit: bool, _snail_trail: bool = false):
 	var u = final_units[uid]
 	var trail: Array = timelines[uid]
 	var alive_until = u.elim_turn if u.eliminated else TURNS
 	var max_ti = mini(alive_until + 1, trail.size() - 1)
 	var base = C_P1 if u.player == 1 else C_P2
-	var highlight_a = 0.08 if is_preview_unit else (0.22 if snail_trail else 0.15)
+	var highlight_a = 0.25 if is_preview_unit else 0.30
 	# Path hex highlights
 	for ti in (max_ti + 1):
 		var pos = trail[ti]
@@ -1682,9 +2031,9 @@ func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, comba
 		var hc = hex_to_pixel(pos.x, pos.y)
 		var corners = hex_corners(hc)
 		draw_colored_polygon(corners, Color(base.r, base.g, base.b, highlight_a))
-	# Path lines
-	var line_alpha = 0.35 if is_preview_unit else (0.9 if snail_trail else 0.7)
-	var line_w = 1.5 * cam_zoom if is_preview_unit else ((4.0 if snail_trail else 2.5) * cam_zoom)
+	# Snail trail ribbon
+	var ribbon_w = HEX_SIZE * (0.6 if is_preview_unit else 0.7) * cam_zoom
+	var ribbon_a = 0.50 if is_preview_unit else 0.6
 	for ti in max_ti:
 		var from_pos = trail[ti]
 		var to_pos = trail[ti + 1]
@@ -1692,17 +2041,26 @@ func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, comba
 		if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
 		var pa = hex_to_pixel(from_pos.x, from_pos.y)
 		var pb = hex_to_pixel(to_pos.x, to_pos.y)
-		draw_line(pa, pb, Color(base.r, base.g, base.b, line_alpha), line_w)
-	# Ghost tokens
+		var dir = (pb - pa).normalized()
+		var perp = Vector2(-dir.y, dir.x) * ribbon_w
+		var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
+		draw_colored_polygon(quad, Color(base.r, base.g, base.b, ribbon_a))
+	# Snail trail ghost tokens with caterpillar taper
+	var worm_alpha = 0.75 if is_preview_unit else 0.85
 	for ti in (max_ti + 1):
 		var pos = trail[ti]
 		if pos == Vector2i(-1, -1): continue
 		var center = hex_to_pixel(pos.x, pos.y)
-		var progress = float(ti) / float(maxi(1, TURNS))
-		var alpha = (0.25 + progress * 0.50) if snail_trail else (0.15 + progress * 0.35)
-		if is_preview_unit: alpha *= 0.5
 		if ti != display_turn:
-			_draw_unit_token(center, u.player, u.models, u.unit_type, true, alpha)
+			_draw_unit_token(center, u.player, u.models, u.unit_type, true, worm_alpha, ti)
+		if ti < max_ti:
+			var next_pos = trail[ti + 1]
+			if next_pos == Vector2i(-1, -1) or next_pos == pos: continue
+			var next_center = hex_to_pixel(next_pos.x, next_pos.y)
+			for interp in [0.17, 0.33, 0.50, 0.67, 0.83]:
+				var mid = center.lerp(next_center, interp)
+				var interp_frame = ti if interp < 0.5 else ti + 1
+				_draw_unit_token_scaled(mid, u.player, u.models, u.unit_type, worm_alpha * 0.85, 0.7, interp_frame)
 	# Current-turn token
 	var cur_idx = mini(display_turn, trail.size() - 1)
 	var next_idx = mini(display_turn + 1, trail.size() - 1)
@@ -1717,8 +2075,7 @@ func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, comba
 			draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
 				Color(0.9, 0.2, 0.2, 0.7), 2.5)
 		else:
-			var alpha = 0.55 if is_preview_unit else 1.0
-			_draw_unit_token(center, u.player, u.models, u.unit_type, is_preview_unit, alpha)
+			_draw_unit_token(center, u.player, u.models, u.unit_type, false, 1.0)
 
 func _draw_sim(sim: Dictionary, is_preview: bool):
 	var timelines   : Array = sim.get("timelines", [])
@@ -1726,43 +2083,59 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 	var combat_ev   : Array = sim.get("combat", [])
 
 	var display_turn = mini(anim_turn, TURNS)
+	var effective_mode = view_mode if phase == Phase.DEPLOY else ViewMode.FULL
+	# Animation scan only in CLEAN mode; other modes show static snail trails
+	var show_anim_scan = (effective_mode == ViewMode.CLEAN)
 
 	# During preview, determine which units are affected by the placement
 	var changed: Dictionary = preview_diff.get("changed_uids", {}) if is_preview else {}
 
-	# Determine which drawing layers to use based on view mode
-	# During DEPLOY phase: respect view_mode. During DONE phase: always FULL.
-	var effective_mode = view_mode if phase == Phase.DEPLOY else ViewMode.FULL
-
-	# --- CLEAN mode: all units at final position, plus preview unit's timeline ---
-	if effective_mode == ViewMode.CLEAN:
-		for uid in timelines.size():
-			var is_preview_unit = (is_preview and uid == timelines.size() - 1)
-			if is_preview_unit: continue  # draw with timeline below
-			_draw_unit_final(uid, final_units, timelines, false, 1.0)
-		# Draw preview unit's full timeline so player sees their unit's path
-		if is_preview:
-			var puid = timelines.size() - 1
-			_draw_single_timeline(puid, final_units, timelines, combat_ev, display_turn, true)
-		return
-
-	# --- CHANGED mode: full timeline for affected units, final pos for rest ---
-	# --- FULL mode: full timeline for ALL units ---
+	# Which units get snail trails depends on view mode
 	var show_timeline_for_uid := func(uid: int) -> bool:
 		if effective_mode == ViewMode.FULL:
-			return true  # show every unit's timeline
-		# CHANGED mode
-		if not is_preview: return false  # no hover = clean board
-		return changed.has(uid) or uid == timelines.size() - 1  # only affected + preview unit
+			return true  # all units
+		if effective_mode == ViewMode.CHANGED:
+			# Show trails for changed units, preview unit, AND all units (so enemies visible)
+			return true
+		# CLEAN mode: only preview unit gets trail, others at final position
+		if not is_preview: return false
+		return uid == timelines.size() - 1
 
-	# --- 0) Draw units that get final-position-only treatment ---
+	# --- 0) Red ghost trails for units whose paths will change (preview only) ---
+	if is_preview and not changed.is_empty() and not confirmed_sim.is_empty():
+		var old_timelines: Array = confirmed_sim.get("timelines", [])
+		var old_units: Array = confirmed_sim.get("units", [])
+		var red = Color(0.9, 0.2, 0.15)
+		for uid in changed:
+			if uid >= old_timelines.size(): continue
+			var ou = old_units[uid]
+			var old_trail: Array = old_timelines[uid]
+			var alive_until = ou.elim_turn if ou.eliminated else TURNS
+			var max_ti = mini(alive_until + 1, old_trail.size() - 1)
+			# Red ribbon
+			for ti in max_ti:
+				var from_pos = old_trail[ti]
+				var to_pos = old_trail[ti + 1]
+				if from_pos == to_pos: continue
+				if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
+				var pa = hex_to_pixel(from_pos.x, from_pos.y)
+				var pb = hex_to_pixel(to_pos.x, to_pos.y)
+				var dir = (pb - pa).normalized()
+				var perp = Vector2(-dir.y, dir.x) * HEX_SIZE * 0.7 * cam_zoom
+				var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
+				draw_colored_polygon(quad, Color(red.r, red.g, red.b, 0.35))
+			# Red hex highlights
+			for ti in (max_ti + 1):
+				var pos = old_trail[ti]
+				if pos == Vector2i(-1, -1): continue
+				var hc = hex_to_pixel(pos.x, pos.y)
+				var corners = hex_corners(hc)
+				draw_colored_polygon(corners, Color(red.r, red.g, red.b, 0.20))
+
+	# --- 0b) Draw units without timelines at their final position ---
 	for uid in timelines.size():
 		if show_timeline_for_uid.call(uid): continue
-		var is_preview_unit = (is_preview and uid == timelines.size() - 1)
-		var a = 0.3 if (is_preview and not is_preview_unit) else (0.55 if is_preview_unit else 1.0)
-		_draw_unit_final(uid, final_units, timelines, is_preview or not changed.has(uid), a)
-
-	var is_snail = (effective_mode == ViewMode.FULL)
+		_draw_unit_final(uid, final_units, timelines, false, 1.0)
 
 	# --- 1) Highlight path hexes for each unit ---
 	for uid in timelines.size():
@@ -1773,7 +2146,7 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 		var max_ti = mini(alive_until + 1, trail.size() - 1)
 		var is_preview_unit = (is_preview and uid == timelines.size() - 1)
 		var base = C_P1 if u.player == 1 else C_P2
-		var highlight_a = 0.08 if is_preview_unit else (0.22 if is_snail else 0.15)
+		var highlight_a = 0.25 if is_preview_unit else 0.30
 
 		for ti in (max_ti + 1):
 			var pos = trail[ti]
@@ -1792,35 +2165,22 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 		var is_preview_unit = (is_preview and uid == timelines.size() - 1)
 		var base = C_P1 if u.player == 1 else C_P2
 
-		if is_snail and not is_preview_unit:
-			# Worm mode: filled ribbon between consecutive positions
-			var ribbon_w = HEX_SIZE * 0.45 * cam_zoom
-			var ribbon_a = 0.35
-			for ti in max_ti:
-				var from_pos = trail[ti]
-				var to_pos   = trail[ti + 1]
-				if from_pos == to_pos: continue
-				if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
-				var pa = hex_to_pixel(from_pos.x, from_pos.y)
-				var pb = hex_to_pixel(to_pos.x, to_pos.y)
-				var dir = (pb - pa).normalized()
-				var perp = Vector2(-dir.y, dir.x) * ribbon_w
-				var quad = PackedVector2Array([
-					pa + perp, pa - perp, pb - perp, pb + perp
-				])
-				draw_colored_polygon(quad, Color(base.r, base.g, base.b, ribbon_a))
-		else:
-			# Normal mode: thin lines
-			var line_alpha = 0.35 if is_preview_unit else 0.7
-			var line_w = 1.5 * cam_zoom if is_preview_unit else 2.5 * cam_zoom
-			for ti in max_ti:
-				var from_pos = trail[ti]
-				var to_pos   = trail[ti + 1]
-				if from_pos == to_pos: continue
-				if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
-				var pa = hex_to_pixel(from_pos.x, from_pos.y)
-				var pb = hex_to_pixel(to_pos.x, to_pos.y)
-				draw_line(pa, pb, Color(base.r, base.g, base.b, line_alpha), line_w)
+		# Snail trail: filled ribbon between consecutive positions
+		var ribbon_w = HEX_SIZE * (0.6 if is_preview_unit else 0.7) * cam_zoom
+		var ribbon_a = 0.50 if is_preview_unit else 0.6
+		for ti in max_ti:
+			var from_pos = trail[ti]
+			var to_pos   = trail[ti + 1]
+			if from_pos == to_pos: continue
+			if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
+			var pa = hex_to_pixel(from_pos.x, from_pos.y)
+			var pb = hex_to_pixel(to_pos.x, to_pos.y)
+			var dir = (pb - pa).normalized()
+			var perp = Vector2(-dir.y, dir.x) * ribbon_w
+			var quad = PackedVector2Array([
+				pa + perp, pa - perp, pb - perp, pb + perp
+			])
+			draw_colored_polygon(quad, Color(base.r, base.g, base.b, ribbon_a))
 
 	# --- 3) Ghost tokens at each turn position ---
 	for uid in timelines.size():
@@ -1831,175 +2191,266 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 		var max_ti = mini(alive_until + 1, trail.size() - 1)
 		var is_preview_unit = (is_preview and uid == timelines.size() - 1)
 
-		if is_snail and not is_preview_unit:
-			# Worm mode: uniform opacity + interpolated tokens between steps
-			var worm_alpha = 0.55
-			for ti in (max_ti + 1):
-				var pos = trail[ti]
-				if pos == Vector2i(-1, -1): continue
-				var center = hex_to_pixel(pos.x, pos.y)
-				# Draw token at this turn position (every slice is equally real)
-				_draw_unit_token(center, u.player, u.models, u.unit_type, true, worm_alpha)
-				# Draw interpolated tokens between this and next position
-				if ti < max_ti:
-					var next_pos = trail[ti + 1]
-					if next_pos == Vector2i(-1, -1) or next_pos == pos: continue
-					var next_center = hex_to_pixel(next_pos.x, next_pos.y)
-					for interp in [0.33, 0.66]:
-						var mid = center.lerp(next_center, interp)
-						_draw_unit_token(mid, u.player, u.models, u.unit_type, true, worm_alpha * 0.7)
-		else:
-			# Normal mode: progress-based opacity gradient
-			for ti in (max_ti + 1):
-				var pos = trail[ti]
-				if pos == Vector2i(-1, -1): continue
-				var center = hex_to_pixel(pos.x, pos.y)
-				var progress = float(ti) / float(maxi(1, TURNS))
-				var alpha = 0.15 + progress * 0.35
-				if is_preview_unit:
-					alpha *= 0.5
-				var is_current = (ti == display_turn)
-				if not is_current:
-					_draw_unit_token(center, u.player, u.models, u.unit_type, true, alpha)
+		# Snail trail: each turn gets a distinct sprite pose, dense interpolation between
+		var worm_alpha = 0.75 if is_preview_unit else 0.85
+		for ti in (max_ti + 1):
+			var pos = trail[ti]
+			if pos == Vector2i(-1, -1): continue
+			var center = hex_to_pixel(pos.x, pos.y)
+			if show_anim_scan and ti == display_turn: continue  # current-turn token drawn in section 5
+			# Full-size sprite at each turn position
+			_draw_unit_token(center, u.player, u.models, u.unit_type, true, worm_alpha, ti)
+			# Caterpillar taper: smaller sprites between stops
+			if ti < max_ti:
+				var next_pos = trail[ti + 1]
+				if next_pos == Vector2i(-1, -1) or next_pos == pos: continue
+				var next_center = hex_to_pixel(next_pos.x, next_pos.y)
+				for interp in [0.17, 0.33, 0.50, 0.67, 0.83]:
+					var mid = center.lerp(next_center, interp)
+					var interp_frame = ti if interp < 0.5 else ti + 1
+					_draw_unit_token_scaled(mid, u.player, u.models, u.unit_type, worm_alpha * 0.85, 0.7, interp_frame)
 
-	# --- 4) Combat sparks (only for units with visible timelines) ---
-	for t in display_turn:
-		if t >= combat_ev.size(): break
-		for ev in combat_ev[t]:
-			# Check if at least one participant has a visible timeline
-			var aid = ev.get("a", -1)
-			var eid = ev.get("b", -1)
-			var show_spark = false
-			if aid >= 0 and show_timeline_for_uid.call(aid): show_spark = true
-			if eid >= 0 and show_timeline_for_uid.call(eid): show_spark = true
-			if not show_spark: continue
-			var ac = hex_to_pixel(ev.ac, ev.ar)
-			var bc = hex_to_pixel(ev.bc, ev.br)
-			var mid = (ac + bc) * 0.5
-			draw_circle(mid, 14.0 * cam_zoom, Color(C_COMBAT.r, C_COMBAT.g, C_COMBAT.b, 0.20))
-			_draw_swords(mid)
+	if show_anim_scan:
+		# --- 4) Combat sparks (only in CLEAN mode with animation) ---
+		for t in display_turn:
+			if t >= combat_ev.size(): break
+			for ev in combat_ev[t]:
+				var aid = ev.get("a", -1)
+				var eid = ev.get("b", -1)
+				var show_spark = false
+				if aid >= 0 and show_timeline_for_uid.call(aid): show_spark = true
+				if eid >= 0 and show_timeline_for_uid.call(eid): show_spark = true
+				if not show_spark: continue
+				var ac = hex_to_pixel(ev.ac, ev.ar)
+				var bc = hex_to_pixel(ev.bc, ev.br)
+				var mid = (ac + bc) * 0.5
+				draw_circle(mid, 14.0 * cam_zoom, Color(C_COMBAT.r, C_COMBAT.g, C_COMBAT.b, 0.20))
+				_draw_swords(mid)
 
-	# --- 5) Current-turn tokens on top (interpolated position) ---
-	for uid in timelines.size():
-		if not show_timeline_for_uid.call(uid): continue
-		var trail: Array = timelines[uid]
-		var u     = final_units[uid]
-		var is_preview_unit = (is_preview and uid == timelines.size() - 1)
-		var cur_idx  = mini(display_turn, trail.size() - 1)
-		var next_idx = mini(display_turn + 1, trail.size() - 1)
+		# --- 5) Current-turn tokens on top (animated position) ---
+		for uid in timelines.size():
+			if not show_timeline_for_uid.call(uid): continue
+			var trail: Array = timelines[uid]
+			var u     = final_units[uid]
+			var cur_idx  = mini(display_turn, trail.size() - 1)
+			var next_idx = mini(display_turn + 1, trail.size() - 1)
 
-		if trail[cur_idx] == Vector2i(-1, -1): continue
+			if trail[cur_idx] == Vector2i(-1, -1): continue
 
-		var pos_a  = hex_to_pixel(trail[cur_idx].x,  trail[cur_idx].y)
-		var pos_b  = hex_to_pixel(trail[next_idx].x, trail[next_idx].y)
-		var center = pos_a.lerp(pos_b, anim_frac)
+			var pos_a  = hex_to_pixel(trail[cur_idx].x,  trail[cur_idx].y)
+			var pos_b  = hex_to_pixel(trail[next_idx].x, trail[next_idx].y)
+			var center = pos_a.lerp(pos_b, anim_frac)
 
-		if u.eliminated and u.elim_turn <= display_turn - 1:
-			var r = 8.0 * cam_zoom
-			draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
-				Color(0.9, 0.2, 0.2, 0.7), 2.5)
-			draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
-				Color(0.9, 0.2, 0.2, 0.7), 2.5)
-			continue
-		if is_snail and not is_preview_unit:
-			# Worm mode: current slice is just slightly brighter than the rest
-			_draw_unit_token(center, u.player, u.models, u.unit_type, false, 0.7)
-		else:
-			var alpha = 0.55 if is_preview_unit else 1.0
-			_draw_unit_token(center, u.player, u.models, u.unit_type, is_preview_unit, alpha)
+			if u.eliminated and u.elim_turn <= display_turn - 1:
+				var r = 8.0 * cam_zoom
+				draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
+					Color(0.9, 0.2, 0.2, 0.7), 2.5)
+				draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
+					Color(0.9, 0.2, 0.2, 0.7), 2.5)
+				continue
+			_draw_unit_token(center, u.player, u.models, u.unit_type, false, 1.0)
+
+	# --- 6) Fate icons during preview (sword/death/survival) ---
+	if is_preview and not preview_diff.is_empty():
+		var fate_changes: Array = preview_diff.get("fate_changes", [])
+		var icon_size = HEX_SIZE * 2.5 * cam_zoom
+		for fc in fate_changes:
+			var uid_fc: int = fc.uid
+			if uid_fc >= timelines.size(): continue
+			var u_fc = final_units[uid_fc]
+			var trail_fc: Array = timelines[uid_fc]
+			# Get unit's final alive position
+			var final_pos = Vector2i(-1, -1)
+			if u_fc.eliminated:
+				var et = mini(u_fc.elim_turn, trail_fc.size() - 1)
+				final_pos = trail_fc[et]
+			else:
+				final_pos = trail_fc[trail_fc.size() - 1]
+			if final_pos == Vector2i(-1, -1): continue
+			var center = hex_to_pixel(final_pos.x, final_pos.y)
+			var team_tint = C_P1 if u_fc.player == 1 else C_P2
+			if fc.fate == "now_dies" and _icon_death:
+				var death_offset = Vector2(icon_size * 0.5, -icon_size * 0.3)
+				var death_rect = Rect2(center + death_offset - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
+				draw_texture_rect(_icon_death, death_rect, false, team_tint)
+			elif fc.fate == "now_survives" and _icon_survive:
+				var surv_offset = Vector2(0, -icon_size * 1.0)
+				var surv_rect = Rect2(center + surv_offset - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
+				draw_texture_rect(_icon_survive, surv_rect, false, team_tint)
+		# Sword icons for combat victories: unit alive with no enemies in combat range
+		for uid_s in timelines.size():
+			var u_s = final_units[uid_s]
+			if u_s.eliminated: continue
+			var trail_s: Array = timelines[uid_s]
+			var final_pos_s = trail_s[trail_s.size() - 1]
+			if final_pos_s == Vector2i(-1, -1): continue
+			# Check if any enemy was eliminated nearby (within combat range)
+			var has_kill = false
+			for uid_e in timelines.size():
+				var ue = final_units[uid_e]
+				if ue.player == u_s.player: continue
+				if not ue.eliminated: continue
+				var elim_pos = timelines[uid_e][mini(ue.elim_turn, timelines[uid_e].size() - 1)]
+				if elim_pos == Vector2i(-1, -1): continue
+				var dist = hex_dist(final_pos_s.x, final_pos_s.y, elim_pos.x, elim_pos.y)
+				if dist <= COMBAT_RANGE + 2:
+					has_kill = true
+					break
+			if has_kill and _icon_sword:
+				var center_s = hex_to_pixel(final_pos_s.x, final_pos_s.y)
+				var sword_offset = Vector2(-icon_size * 0.6, -icon_size * 0.8)
+				var sword_rect = Rect2(center_s + sword_offset, Vector2(icon_size, icon_size))
+				var team_color = C_P1 if u_s.player == 1 else C_P2
+				draw_texture_rect(_icon_sword, sword_rect, false, team_color)
 
 # ============================================================================
 # DRAW HELPERS
 # ============================================================================
 
-func _draw_unit_token(center: Vector2, player: int, models: int, unit_type: String, is_ghost: bool, alpha: float):
-	var base = C_P1 if player == 1 else C_P2
-	var s    = HEX_SIZE * 0.55 * cam_zoom
-	var a    = alpha * (0.60 if is_ghost else 1.0)
-	var col  = Color(base.r, base.g, base.b, a)
-	var line = Color(1, 1, 1, a * 0.5)
-
-	if unit_type == "cavalry":
-		# Diamond shape
-		var pts = PackedVector2Array([
-			center + Vector2( 0,       -s * 1.1),
-			center + Vector2( s * 1.1,  0),
-			center + Vector2( 0,        s * 1.1),
-			center + Vector2(-s * 1.1,  0),
-		])
-		draw_colored_polygon(pts, col)
-		draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[3], pts[0]]), line, 1.0)
-		var arm = s * 0.4
-		draw_line(center + Vector2(-arm, arm * 0.3), center + Vector2(0, -arm * 0.5),
-			Color(1, 1, 1, a * 0.7), 1.5)
-		draw_line(center + Vector2(arm, arm * 0.3), center + Vector2(0, -arm * 0.5),
-			Color(1, 1, 1, a * 0.7), 1.5)
-	elif unit_type == "artillery":
-		# Trapezoid / triangle shape
-		var pts = PackedVector2Array([
-			center + Vector2(-s * 0.6, -s * 1.0),
-			center + Vector2( s * 0.6, -s * 1.0),
-			center + Vector2( s * 1.1,  s * 0.8),
-			center + Vector2(-s * 1.1,  s * 0.8),
-		])
-		draw_colored_polygon(pts, col)
-		draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[3], pts[0]]), line, 1.0)
-		# Cannon barrel emblem
-		draw_line(center + Vector2(0, -s * 0.5), center + Vector2(0, s * 0.3),
-			Color(1, 1, 1, a * 0.7), 2.5)
-		draw_circle(center + Vector2(0, s * 0.3), s * 0.15, Color(1, 1, 1, a * 0.5))
-	elif unit_type == "deep_strike":
-		# Star/burst shape (6-pointed)
-		var inner = s * 0.55
-		var outer = s * 1.1
-		var star_pts = PackedVector2Array()
-		for i in 6:
-			var ang_out = i * PI / 3.0 - PI / 2.0
-			var ang_in  = ang_out + PI / 6.0
-			star_pts.append(center + Vector2(cos(ang_out), sin(ang_out)) * outer)
-			star_pts.append(center + Vector2(cos(ang_in), sin(ang_in)) * inner)
-		draw_colored_polygon(star_pts, col)
-		var outline = PackedVector2Array(star_pts)
-		outline.append(star_pts[0])
-		draw_polyline(outline, line, 1.0)
-	elif unit_type == "wizard":
-		# Circle/orb shape
+func _draw_unit_token(center: Vector2, player: int, models: int, unit_type: String, is_ghost: bool, alpha: float, fixed_frame: int = -1):
+	var a = alpha * (0.60 if is_ghost else 1.0)
+	# Try to draw sprite; fall back to colored circle if no texture
+	var has_sprite = unit_sprites.has(player) and unit_sprites[player].has(unit_type)
+	if has_sprite:
+		var tex: Texture2D = unit_sprites[player][unit_type]["idle"]
+		var info = SPRITE_FRAMES.get(unit_type, {"idle": 1, "size": 192})
+		var frame_size = info["size"]
+		var frame_count = info["idle"]
+		var frame_idx: int
+		if fixed_frame >= 0:
+			# Spacetime worm: each time-slice shows a distinct pose
+			frame_idx = fixed_frame % frame_count
+		else:
+			# Normal: cycle through idle frames using anim_frac + anim_turn
+			var anim_speed = 8.0  # frames per second
+			frame_idx = int(fmod(anim_turn * anim_speed * TURN_DURATION + anim_frac * anim_speed * TURN_DURATION, frame_count))
+		frame_idx = clampi(frame_idx, 0, frame_count - 1)
+		var src_rect = Rect2(frame_idx * frame_size, 0, frame_size, frame_size)
+		# Draw size: scale up for larger frames so visible character matches
+		var draw_size = HEX_SIZE * 4.3 * cam_zoom * (frame_size / 192.0)
+		var dest_rect = Rect2(center - Vector2(draw_size * 0.5, draw_size * 0.6), Vector2(draw_size, draw_size))
+		draw_texture_rect_region(tex, dest_rect, src_rect, Color(1, 1, 1, a))
+	else:
+		# Fallback: simple colored circle
+		var base = C_P1 if player == 1 else C_P2
+		var s = HEX_SIZE * 0.55 * cam_zoom
+		var col = Color(base.r, base.g, base.b, a)
 		var segments = 16
 		var circle_pts = PackedVector2Array()
 		for i in segments:
 			var ang = i * TAU / segments
-			circle_pts.append(center + Vector2(cos(ang), sin(ang)) * s * 1.0)
+			circle_pts.append(center + Vector2(cos(ang), sin(ang)) * s)
 		draw_colored_polygon(circle_pts, col)
-		var outline = PackedVector2Array(circle_pts)
-		outline.append(circle_pts[0])
-		draw_polyline(outline, line, 1.0)
-		# Star emblem inside
-		var arm = s * 0.4
-		for i in 3:
-			var ang = i * PI / 3.0 - PI / 2.0
-			draw_line(center, center + Vector2(cos(ang), sin(ang)) * arm,
-				Color(1, 1, 1, a * 0.7), 1.5)
-	else:
-		# Shield shape for infantry (default)
-		var pts = PackedVector2Array([
-			center + Vector2(-s,       -s * 0.9),
-			center + Vector2( s,       -s * 0.9),
-			center + Vector2( s * 1.1,  s * 0.1),
-			center + Vector2( 0,        s * 1.1),
-			center + Vector2(-s * 1.1,  s * 0.1),
-		])
-		draw_colored_polygon(pts, col)
-		draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[3], pts[4], pts[0]]), line, 1.0)
-		var arm = s * 0.45
-		draw_line(center + Vector2(0, -arm), center + Vector2(0, arm),
-			Color(1, 1, 1, a * 0.7), 1.5)
-		draw_line(center + Vector2(-arm, -arm * 0.2), center + Vector2(arm, -arm * 0.2),
-			Color(1, 1, 1, a * 0.7), 1.5)
 
 	if not is_ghost and cam_zoom >= 0.5:
 		var font = ThemeDB.fallback_font
 		draw_string(font, center + Vector2(-5, 5), str(models),
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 1, 1, a))
+
+func _draw_unit_token_scaled(center: Vector2, player: int, models: int, unit_type: String, alpha: float, scale_factor: float, fixed_frame: int = -1):
+	# Smaller version of _draw_unit_token for caterpillar taper segments
+	var a = alpha * 0.60  # always ghost-like
+	var has_sprite = unit_sprites.has(player) and unit_sprites[player].has(unit_type)
+	if has_sprite:
+		var tex: Texture2D = unit_sprites[player][unit_type]["idle"]
+		var info = SPRITE_FRAMES.get(unit_type, {"idle": 1, "size": 192})
+		var frame_size = info["size"]
+		var frame_count = info["idle"]
+		var frame_idx = (fixed_frame % frame_count) if fixed_frame >= 0 else 0
+		frame_idx = clampi(frame_idx, 0, frame_count - 1)
+		var src_rect = Rect2(frame_idx * frame_size, 0, frame_size, frame_size)
+		var draw_size = HEX_SIZE * 4.3 * cam_zoom * scale_factor * (frame_size / 192.0)
+		var dest_rect = Rect2(center - Vector2(draw_size * 0.5, draw_size * 0.6), Vector2(draw_size, draw_size))
+		draw_texture_rect_region(tex, dest_rect, src_rect, Color(1, 1, 1, a))
+	else:
+		var base = C_P1 if player == 1 else C_P2
+		var s = HEX_SIZE * 0.55 * cam_zoom * scale_factor
+		var col = Color(base.r, base.g, base.b, a)
+		var segments = 16
+		var circle_pts = PackedVector2Array()
+		for i in segments:
+			var ang = i * TAU / segments
+			circle_pts.append(center + Vector2(cos(ang), sin(ang)) * s)
+		draw_colored_polygon(circle_pts, col)
+
+func _draw_shift_summary():
+	var vp_size = get_viewport_rect().size
+	var font = ThemeDB.fallback_font
+	var line_h = 22.0
+	var font_size = 15
+	var title_size = 20
+	var pad = 15.0
+	var total_lines = shift_summary_lines.size()
+	var max_visible_lines = 12
+	var visible_lines = mini(total_lines, max_visible_lines)
+	# Box height: title + visible lines + click prompt
+	var box_h = 30.0 + visible_lines * line_h + 20.0 + pad
+	var box_w = min(vp_size.x * 0.85, 1200.0)
+	var box_x = (vp_size.x - box_w) * 0.5
+	var box_y = vp_size.y * 0.7 - box_h * 0.5
+	# Clamp scroll
+	var max_scroll = maxi(0, total_lines - max_visible_lines)
+	shift_summary_scroll = clampi(shift_summary_scroll, 0, max_scroll)
+	# Dark background with border
+	draw_rect(Rect2(box_x - 2, box_y - 2, box_w + 4, box_h + 4), Color(0.8, 0.7, 0.3, 0.9))
+	draw_rect(Rect2(box_x, box_y, box_w, box_h), Color(0.12, 0.12, 0.15, 0.95))
+	# Title
+	draw_string(font, Vector2(box_x + pad, box_y + 26), "TIMELINE SHIFTED",
+		HORIZONTAL_ALIGNMENT_LEFT, box_w - pad * 2, title_size, Color(1, 0.9, 0.4, 1.0))
+	# Colored text lines (scrollable)
+	var y_cursor = box_y + 30.0 + line_h
+	for li in visible_lines:
+		var line_idx = li + shift_summary_scroll
+		if line_idx >= total_lines: break
+		var line = shift_summary_lines[line_idx]
+		var x_cursor = box_x + pad
+		for seg in line:
+			var text: String = seg.t
+			var col: Color = seg.c
+			draw_string(font, Vector2(x_cursor, y_cursor), text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, col)
+			x_cursor += font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		y_cursor += line_h
+	# Scroll indicator
+	if max_scroll > 0:
+		var bar_x = box_x + box_w - 10
+		var bar_top = box_y + 34.0
+		var bar_h = visible_lines * line_h
+		draw_rect(Rect2(bar_x, bar_top, 5, bar_h), Color(0.3, 0.3, 0.3, 0.5))
+		var thumb_h = bar_h * float(visible_lines) / float(total_lines)
+		var thumb_y = bar_top + (bar_h - thumb_h) * float(shift_summary_scroll) / float(max_scroll)
+		draw_rect(Rect2(bar_x, thumb_y, 5, thumb_h), Color(0.7, 0.7, 0.7, 0.7))
+	# Click prompt
+	draw_string(font, Vector2(box_x + pad, y_cursor + 4), "(click to continue)",
+		HORIZONTAL_ALIGNMENT_LEFT, box_w - pad * 2, 13, Color(0.6, 0.6, 0.6, 0.8))
+	# Draw fate icons on the map with swell animation
+	if not shift_summary_diff.is_empty() and not confirmed_sim.is_empty():
+		var fate_changes: Array = shift_summary_diff.get("fate_changes", [])
+		var timelines_s: Array = confirmed_sim.get("timelines", [])
+		var units_s: Array = confirmed_sim.get("units", [])
+		# Swell: pulse from 1.0 to 1.5 and back over 0.6s
+		var swell = 1.0 + 0.5 * sin(shift_summary_timer * TAU / 0.6)
+		var icon_size = HEX_SIZE * 2.5 * cam_zoom * swell
+		for fc in fate_changes:
+			var uid_fc: int = fc.uid
+			if uid_fc >= units_s.size() or uid_fc >= timelines_s.size(): continue
+			var u_fc = units_s[uid_fc]
+			var trail_fc: Array = timelines_s[uid_fc]
+			var final_pos = Vector2i(-1, -1)
+			if u_fc.eliminated:
+				var et = mini(u_fc.elim_turn, trail_fc.size() - 1)
+				final_pos = trail_fc[et]
+			else:
+				final_pos = trail_fc[trail_fc.size() - 1]
+			if final_pos == Vector2i(-1, -1): continue
+			var center = hex_to_pixel(final_pos.x, final_pos.y)
+			var team_tint = C_P1 if u_fc.player == 1 else C_P2
+			if fc.fate == "now_dies" and _icon_death:
+				var r = Rect2(center - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
+				draw_texture_rect(_icon_death, r, false, team_tint)
+			elif fc.fate == "now_survives" and _icon_survive:
+				var r = Rect2(center - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
+				draw_texture_rect(_icon_survive, r, false, team_tint)
 
 func _draw_banner(center: Vector2, idx: int):
 	var sc = cam_zoom
@@ -2429,6 +2880,7 @@ func _draw_final_state(sim: Dictionary):
 		for c in COLS:
 			_draw_tile(c, r)
 
+
 	# Draw all units at their final positions
 	for uid in timelines.size():
 		var u = final_units[uid]
@@ -2481,6 +2933,7 @@ func _draw_replay():
 	for r in ROWS:
 		for c in COLS:
 			_draw_tile(c, r)
+
 
 	# Draw only the units at their replay_turn position — no ghosts, no trails
 	var snap: Array = snapshots[replay_turn] if replay_turn < snapshots.size() else []
