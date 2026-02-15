@@ -1200,10 +1200,11 @@ func _handle_deploy_click(h: Vector2i):
 	anim_turn  = 0
 	anim_frac  = 0.0
 
-	# Get the placed unit's name from the new sim (it's the last unit added)
+	# Get the placed unit's UID and name from the new sim
+	var placed_uid = placed_p1.size() - 1 if placed_player == 1 else placed_p1.size() + placed_p2.size() - 1
 	var new_names: Array = confirmed_sim.get("unit_names", [])
-	if not new_names.is_empty():
-		placed_unit_name = new_names[new_names.size() - 1]
+	if placed_uid >= 0 and placed_uid < new_names.size():
+		placed_unit_name = new_names[placed_uid]
 
 	var total_placed = placed_p1.size() + placed_p2.size()
 	if total_placed >= UNITS_PER_SIDE * 2:
@@ -1212,7 +1213,7 @@ func _handle_deploy_click(h: Vector2i):
 	else:
 		# Show shift summary before next unit selection
 		selecting_unit = false
-		shift_summary_lines = _build_shift_summary_lines(shift_summary_diff, shift_old_sim, confirmed_sim, placed_unit_name, placed_type, placed_player)
+		shift_summary_lines = _build_shift_summary_lines(shift_summary_diff, shift_old_sim, confirmed_sim, placed_unit_name, placed_type, placed_player, placed_uid)
 		shift_summary_scroll = 0
 		showing_shift_summary = true
 		shift_summary_timer = 0.0
@@ -1252,7 +1253,7 @@ func _handle_ds_turn_click(pos: Vector2):
 		var bx = start_x + i * (btn_w + gap)
 		var rect = Rect2(bx, start_y, btn_w, btn_h)
 		if rect.has_point(pos):
-			ds_arrival_turn = i + 2  # T2 = index 0 + 2
+			ds_arrival_turn = i + 1  # T2 button (i=0) → 0-based turn 1 = display Turn 2
 			ds_selecting_turn = false
 			ds_legal_hexes = _compute_ds_legal_hexes(ds_arrival_turn)
 			_compute_deploy_heatmap()
@@ -1494,7 +1495,7 @@ func _unit_dmg_summary(sim: Dictionary, uid: int) -> Array:
 func _team_color(player: int) -> Color:
 	return C_P1 if player == 1 else C_P2
 
-func _build_shift_summary_lines(diff: Dictionary, old_sim: Dictionary, new_sim: Dictionary, placed_name: String, placed_type: String, placed_player: int) -> Array:
+func _build_shift_summary_lines(diff: Dictionary, old_sim: Dictionary, new_sim: Dictionary, placed_name: String, placed_type: String, placed_player: int, placed_uid: int = -1) -> Array:
 	# Returns Array of lines. Each line = Array of {t: String, c: Color} segments.
 	var C_WHITE = Color(0.9, 0.9, 0.9)
 	var C_YELLOW = Color(1.0, 0.9, 0.4)
@@ -1517,7 +1518,8 @@ func _build_shift_summary_lines(diff: Dictionary, old_sim: Dictionary, new_sim: 
 
 	# Placed unit's own performance in the new sim
 	var new_all_units: Array = new_sim.get("units", [])
-	var placed_uid = new_all_units.size() - 1
+	if placed_uid < 0:
+		placed_uid = new_all_units.size() - 1
 	if placed_uid >= 0:
 		var placed_dmg_pairs = _unit_dmg_summary(new_sim, placed_uid)
 		var placed_kills_arr: Array = new_sim.get("unit_kills", [])
@@ -1559,12 +1561,12 @@ func _build_shift_summary_lines(diff: Dictionary, old_sim: Dictionary, new_sim: 
 		# Survival
 		if has_content:
 			if placed_u.eliminated:
-				perf_line.append({"t": ", dies turn %d." % placed_u.elim_turn if placed_u.elim_turn > 0 else ", eliminated.", "c": C_DEATH})
+				perf_line.append({"t": ", dies turn %d." % (placed_u.elim_turn + 1) if placed_u.elim_turn >= 0 else ", eliminated.", "c": C_DEATH})
 			else:
 				perf_line.append({"t": ", survives.", "c": C_GREEN})
 			lines.append(perf_line)
 		elif placed_u.eliminated:
-			perf_line.append({"t": "Dies on turn %d without dealing damage." % placed_u.elim_turn if placed_u.elim_turn > 0 else "Eliminated without dealing damage.", "c": C_DEATH})
+			perf_line.append({"t": "Dies on turn %d without dealing damage." % (placed_u.elim_turn + 1) if placed_u.elim_turn >= 0 else "Eliminated without dealing damage.", "c": C_DEATH})
 			lines.append(perf_line)
 		else:
 			perf_line.append({"t": "Survives but deals no damage.", "c": C_GRAY})
@@ -1613,12 +1615,12 @@ func _build_shift_summary_lines(diff: Dictionary, old_sim: Dictionary, new_sim: 
 		# Old fate
 		if obj_strs.is_empty() and old_dmg.is_empty():
 			if u_old.eliminated:
-				line.append({"t": " died on turn %d.", "c": C_GRAY} if u_old.elim_turn > 0 else {"t": " was eliminated.", "c": C_GRAY})
+				line.append({"t": " died on turn %d." % (u_old.elim_turn + 1), "c": C_GRAY} if u_old.elim_turn >= 0 else {"t": " was eliminated.", "c": C_GRAY})
 			else:
 				line.append({"t": " survived the battle.", "c": C_GRAY})
 		else:
 			if u_old.eliminated:
-				line.append({"t": " and died on turn %d." % u_old.elim_turn, "c": C_GRAY} if u_old.elim_turn > 0 else {"t": " and was eliminated.", "c": C_GRAY})
+				line.append({"t": " and died on turn %d." % (u_old.elim_turn + 1), "c": C_GRAY} if u_old.elim_turn >= 0 else {"t": " and was eliminated.", "c": C_GRAY})
 			else:
 				line.append({"t": " and survived.", "c": C_GRAY})
 		lines.append(line)
@@ -1645,7 +1647,7 @@ func _build_shift_summary_lines(diff: Dictionary, old_sim: Dictionary, new_sim: 
 		# Compose the "Now" sentence
 		var now_text := ""
 		if fc.fate == "now_dies":
-			now_text = "Now dies on turn %d" % u_new.elim_turn if u_new.elim_turn > 0 else "Now eliminated"
+			now_text = "Now dies on turn %d" % (u_new.elim_turn + 1) if u_new.elim_turn >= 0 else "Now eliminated"
 			if not obj_changes.is_empty():
 				now_text += ", " + ", ".join(PackedStringArray(obj_changes))
 			now_text += "."
@@ -1655,7 +1657,7 @@ func _build_shift_summary_lines(diff: Dictionary, old_sim: Dictionary, new_sim: 
 				now_text += ", " + ", ".join(PackedStringArray(obj_changes))
 			now_text += "."
 		else:  # shifted
-			now_text = "Now dies on turn %d instead of turn %d" % [u_new.elim_turn, u_old.elim_turn]
+			now_text = "Now dies on turn %d instead of turn %d" % [u_new.elim_turn + 1, u_old.elim_turn + 1]
 			if not obj_changes.is_empty():
 				now_text += ", " + ", ".join(PackedStringArray(obj_changes))
 			now_text += "."
@@ -1739,7 +1741,7 @@ func _generate_battle_summary() -> Array:
 			var type_str = u.unit_type.replace("_", " ").capitalize()
 			var k = kills[uid] if uid < kills.size() else 0
 			var d = dmg[uid] if uid < dmg.size() else 0
-			var died_str = "T%d" % u.elim_turn if u.eliminated else "-"
+			var died_str = "T%d" % (u.elim_turn + 1) if u.eliminated else "-"
 			var alive_str = "%d mdl" % u.models if not u.eliminated else "DEAD"
 			var row_color = tc.darkened(0.3) if u.eliminated else tc
 			lines.append({"text": "  %-4s %-10s %-10s %5d %5d %5s %6s" % [prefix, name_str, type_str, k, d, died_str, alive_str], "color": row_color, "bold": false})
@@ -1806,7 +1808,7 @@ func _generate_battle_summary() -> Array:
 		var name_str = names[e.uid] if e.uid < names.size() else "???"
 		var team = "Blue" if e.player == 1 else "Red"
 		var tc = C_BLUE if e.player == 1 else C_RED2
-		lines.append({"text": "  T%d: %s %s (%s) eliminated" % [e.turn, _unit_prefix(e.type), name_str, team], "color": tc, "bold": false})
+		lines.append({"text": "  T%d: %s %s (%s) eliminated" % [e.turn + 1, _unit_prefix(e.type), name_str, team], "color": tc, "bold": false})
 	if elims.is_empty():
 		lines.append({"text": "  No units eliminated!", "color": C_GREEN, "bold": false})
 	lines.append({"text": "", "color": Color(0.85, 0.85, 0.85), "bold": false})
@@ -2615,7 +2617,7 @@ func _generate_preview_narrative(sim: Dictionary) -> Array:
 
 	# Outcome
 	if u.eliminated:
-		lines.append({"text": "Killed turn %d" % u.elim_turn, "color": Color(0.9, 0.3, 0.3)})
+		lines.append({"text": "Killed turn %d" % (u.elim_turn + 1), "color": Color(0.9, 0.3, 0.3)})
 		lines.append({"text": "%d/%d models lost" % [start_models, start_models], "color": Color(0.7, 0.4, 0.4)})
 	else:
 		var lost = start_models - u.models

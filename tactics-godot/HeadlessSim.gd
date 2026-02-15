@@ -139,8 +139,8 @@ func _parse_side(data, player: int, occupied: Dictionary):
 
 		var unit := {"player": player, "col": col, "row": row, "unit_type": unit_type}
 		if unit_type == "deep_strike":
-			var st = int(entry.get("start_turn", 3))
-			unit["start_turn"] = clampi(st, 2, 8)
+			var st = int(entry.get("start_turn", 3))  # user-facing turn (2-8)
+			unit["start_turn"] = clampi(st - 1, 1, 7)  # convert to 0-based for sim
 		units.append(unit)
 
 	if units.size() > UNITS_PER_SIDE:
@@ -180,7 +180,7 @@ func _generate_random(player: int, occupied: Dictionary) -> Array:
 
 		var unit := {"player": player, "col": col, "row": row, "unit_type": unit_type}
 		if unit_type == "deep_strike":
-			unit["start_turn"] = rng.randi_range(2, 8)
+			unit["start_turn"] = rng.randi_range(1, 7)  # 0-based: display Turn 2-8
 		units.append(unit)
 
 	print("Generated random army for Player %d: %s" % [player, _army_summary(units)])
@@ -236,7 +236,7 @@ func _build_output(result: Dictionary, input_units: Array) -> Dictionary:
 			"deploy_col": u.get("deploy_col", -1),
 			"deploy_row": u.get("deploy_row", -1),
 			"survived": not u.eliminated,
-			"eliminated_turn": u.elim_turn if u.eliminated else -1,
+			"eliminated_turn": (u.elim_turn + 1) if u.eliminated else -1,
 			"models_remaining": u.models,
 			"damage_dealt": dmg[uid] if uid < dmg.size() else 0,
 			"kills": kills[uid] if uid < kills.size() else 0,
@@ -252,7 +252,7 @@ func _build_output(result: Dictionary, input_units: Array) -> Dictionary:
 					targets[tname] = dt[tid]
 			entry["damage_targets"] = targets
 		if u.get("start_turn", 0) > 0:
-			entry["start_turn"] = u.start_turn
+			entry["start_turn"] = u.start_turn + 1  # display turn (1-based)
 		unit_data.append(entry)
 
 	# Score by turn

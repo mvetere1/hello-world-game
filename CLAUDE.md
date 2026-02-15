@@ -49,3 +49,8 @@ See `tactics-godot/CLAUDE.md` for all Godot-specific rules.
   - `tactics-godot/CODE-GUIDE.md` — team onboarding guide
   - `CLAUDE.md` (this file) — top-level summary
   - Do NOT wait to be asked. If you changed behavior, update the docs in the same pass.
+
+## Known bugs (fixed in recent session)
+- **Shift summary placed unit name** — Fixed. Was showing wrong unit when Blue placed after Red due to index calculation. Now correctly compute UID based on active player.
+- **elim_turn off-by-one** — Fixed across 9 locations. Display strings now correctly show `elim_turn + 1` (user-facing turn numbers 1-10). Internal logic unchanged (0-based).
+- **Deep strike start_turn off-by-one** — Fixed. DS turn popup T3 now correctly sets 0-based turn 2 (displays as Turn 3). HeadlessSim.gd converts deploy.json values (2-8) to 0-based.

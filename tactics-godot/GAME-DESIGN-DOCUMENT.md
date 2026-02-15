@@ -415,6 +415,8 @@ DEPLOYMENT PHASE
 DONE — animation loops, result HUD, REPLAY button
 ```
 
+**Turn Numbering:** The battle runs 10 turns, displayed as "Turn 1" through "Turn 10" in the UI. Internally, code uses 0-based indexing (turns 0-9 in loops). Display strings must always format 0-based values with `+1` (e.g., showing "Turn 4" for internal turn 3). Deep Strike arrival turns are selected by the user as T2–T8 (display format) and stored as 0-based values internally.
+
 Each simulated turn:
 ```
 1. DEEP STRIKE ARRIVAL: units with start_turn == current turn materialize at deploy position

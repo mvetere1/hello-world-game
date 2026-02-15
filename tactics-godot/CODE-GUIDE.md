@@ -202,6 +202,13 @@ func _process(delta):
 
 `anim_turn` and `anim_frac` together track which turn the animation is showing and how far between this turn and the next (for smooth interpolation). The animation loops forever.
 
+**IMPORTANT: Turn Indexing Pattern**
+- The sim loop uses 0-based turns (0-9): `for turn in TURNS`
+- ALL display strings must use `turn + 1` to show user-facing turns 1-10 (e.g., combat log headers)
+- ALL internal logic (timeline indexing, snapshot lookups, elimination turn tracking) uses raw 0-based values
+- Example: `elim_turn = 3` means the unit died on 0-based turn 3 (display "Turn 4"). Always format as `elim_turn + 1` in UI strings.
+- Deep strike `start_turn` parameter: deployed 0-based, but user selects 2-8 (display T2–T8). Convert with `+1` / `-1` at boundaries.
+
 ---
 
 ### Lines 536–698: Drawing
