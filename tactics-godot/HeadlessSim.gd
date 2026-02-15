@@ -9,14 +9,14 @@ extends Node
 
 const VALID_TYPES = ["infantry", "cavalry", "artillery", "deep_strike", "archer"]
 
-const COLS = 28
-const ROWS = 20
-const P1_DEPLOY_ROWS_MIN = 16
-const P1_DEPLOY_ROWS_MAX = 19
+const COLS = 56
+const ROWS = 40
+const P1_DEPLOY_ROWS_MIN = 32
+const P1_DEPLOY_ROWS_MAX = 39
 const P2_DEPLOY_ROWS_MIN = 0
-const P2_DEPLOY_ROWS_MAX = 3
-const DEPLOY_C_MIN = 2
-const DEPLOY_C_MAX = 25
+const P2_DEPLOY_ROWS_MAX = 7
+const DEPLOY_C_MIN = 4
+const DEPLOY_C_MAX = 51
 const UNITS_PER_SIDE = 8
 
 func _ready():
@@ -152,7 +152,7 @@ func _parse_side(data, player: int, occupied: Dictionary):
 
 func _generate_random(player: int, occupied: Dictionary) -> Array:
 	var rng = RandomNumberGenerator.new()
-	rng.seed = Time.get_ticks_msec()
+	rng.randomize()
 
 	var row_min = P1_DEPLOY_ROWS_MIN if player == 1 else P2_DEPLOY_ROWS_MIN
 	var row_max = P1_DEPLOY_ROWS_MAX if player == 1 else P2_DEPLOY_ROWS_MAX
@@ -241,6 +241,7 @@ func _build_output(result: Dictionary, input_units: Array) -> Dictionary:
 			"damage_dealt": dmg[uid] if uid < dmg.size() else 0,
 			"kills": kills[uid] if uid < kills.size() else 0,
 			"objectives": obj_arr[uid] if uid < obj_arr.size() else [],
+			"formation_size": u.get("formation", []).size(),
 		}
 		# Damage target breakdown
 		if uid < dmg_to.size():

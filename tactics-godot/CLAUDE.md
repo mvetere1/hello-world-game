@@ -12,13 +12,20 @@
 ## Project
 Godot 4.6 hex tactics demo. Single-file architecture for now.
 - Main scene: `HexMoveDemo.tscn` → `HexMoveDemo.gd`
-- Grid: **120 cols × 88 rows**, **FLAT-TOP hex, isometric rendering** (FFT style)
-- Tileset: `res://../../assets/hex tactics assets/tileset hex tommy.png` (~48px per tile)
+- Grid: **56 cols × 40 rows**, **FLAT-TOP hex, odd-q offset**
 - 8 units per player, free pick from 5 types: Infantry, Cavalry, Artillery, Deep Strike, Archer
+- Multi-hex formations: units occupy ceil(models/2) hexes (compact cluster). Artillery has fixed 5-hex footprint. Formations shrink as models die (front-line hexes released first).
 - Non-reversible unit selection popup before each placement (blind commitment)
 - Combat phases per turn: Movement → Ranged (one-way) → Melee (simultaneous) → Retreat (archer)
-- Combat range: 2 hexes (melee); Artillery range 20, Archer range 8
-- Objectives: 3, controlled by most models within radius 2 per turn
+- Combat range: COMBAT_RANGE = 2 hexes (melee); Artillery range 40, Archer range 24
+- Archer retreat: 16 hex; always retreats from melee; first melee = half damage both ways, subsequent = full damage
+- Cavalry charge bonus: damage 2→1 per hit if cavalry started the turn already in melee range of any enemy
+- Objectives: 3 at (14,20), (28,18), (42,20); controlled by most OC (models × oc stat) within OC_RADIUS (4) per turn
+- Named constants: OC_RADIUS=4, CAVALRY_AGGRO=16, COMBAT_RANGE=2
+- Deploy zones: P1 rows 32-39 cols 4-51, P2 rows 0-7 cols 4-51
+- DS exclusion zone: CAVALRY_AGGRO + 1 = 17 hexes from enemies
+- **DS temporal disruption:** DS pathfinds to nearest enemy trail hex; at COMBAT_RANGE triggers yank (enemy teleported back, formation recomputed, cavalry lose charge). One charge per DS. Wasted on dead unit trails. Reverts to infantry AI after.
+- Camera initial zoom: 0.5 (HEX_SIZE stays at 20.0)
 - RNG seed: per-combat (seeded from pair + turn + nearby unit positions within 2 hexes)
 
 ## IMPORTANT: Hex math changed to flat-top
@@ -90,10 +97,12 @@ This runs:
 13. **Shift summary placed unit name wrong** — FIXED. When Blue placed a unit after Red already had units, the shift summary showed the wrong unit name. Root cause: `placed_p1 + placed_p2` puts P1 units first, so the last element wasn't always the placed unit. Fix: compute correct UID based on which player placed (`placed_p1.size() - 1` for P1, `placed_p1.size() + placed_p2.size() - 1` for P2). The `_build_shift_summary_lines` function now takes a `placed_uid` parameter.
 14. **elim_turn off-by-one** — FIXED. The sim loop uses 0-based turns (0-9) via `for turn in TURNS`. The combat log header correctly prints `turn + 1` (display turns 1-10), but `elim_turn` was stored 0-based and displayed without `+1` in 9 locations (shift summary, battle summary, key moments). Fixed all display strings to use `elim_turn + 1`. Also fixed a pre-existing bug where one line had `" died on turn %d."` without the `%` format operator. Timeline indexing code correctly uses raw 0-based `elim_turn` (unchanged).
 15. **Deep strike start_turn off-by-one** — FIXED. The DS turn popup labeled "T3" set `ds_arrival_turn = i + 2 = 3` (0-based turn 3 = display Turn 4). Unit arrived one turn later than the label indicated. Fixed to `i + 1`. HeadlessSim.gd now converts deploy.json `start_turn` (user-facing 2-8) to 0-based by subtracting 1.
+16. **Deploy formation zone bleed** — FIXED. Formations could grow outside the deploy zone via `compute_compact_cluster()`. Now `_deploy_blocked_cache` marks all non-deploy-zone hexes (plus existing formation hexes) as blocked, so formations compact within the legal zone only. `_recompute_deploy_cache()` rebuilds the cache when unit type is selected or DS turn is chosen.
+17. **Deploy formation stacking** — FIXED. `_handle_deploy_click()` and `_recalc_preview_sim()` previously only checked anchor hex overlap. Now they use `_deploy_blocked_cache` which includes all formation hexes from already-placed units, preventing multi-hex formations from overlapping.
 
 ## Known concerns
 1. **Visual clutter on the battlefield** — with 16 units, ghost trails, path lines, combat sparks, and objective highlights, the map can be visually noisy. Mitigations in place:
-   - **View mode system** (keys 1–4): CLEAN (final positions only + preview unit path), CHANGED (only affected timelines), FULL (all timelines, 2x speed, snail-trail), FINAL (static end-state). Player controls information density.
+   - **View mode system** (keys 1–4): CLEAN (final positions only + preview unit path), CHANGED (70% dark fog overlay + spotlight on changed trails, dim silhouettes for unchanged units), FULL (all timelines, 2x speed, snail-trail), FINAL (static end-state). Player controls information density.
    - **Combat spark filtering**: sparks only render when at least one participant has a visible timeline in the current view mode.
    - **Narrative preview panel**: text summary of what the preview unit will do (fights, objectives, death), displayed below the fate chart.
    - **Font sizes increased ~30%** across all UI for high-resolution monitors.
@@ -114,11 +123,12 @@ NO separate BATTLE phase. Animation is always running.
 ### Per-turn simulation structure
 ```
 1. DEEP STRIKE ARRIVAL: units with start_turn == current turn materialize
-2. MOVEMENT: per-type AI (infantry→objectives, cavalry→enemies, artillery→stay/advance, archer→kite, DS→objectives)
-3. RANGED PHASE: artillery/archer shoot (one-way, skipped if in melee)
-4. MELEE PHASE: all pairs within COMBAT_RANGE fight simultaneously (melee profiles for artillery/archer)
-5. ARCHER RETREAT: archers that were in melee move 5 hex away from all units/objectives
-6. OBJECTIVE CHECK: weighted control (infantry/cavalry 1.0, DS/archer 0.5, artillery 0.0)
+2. MOVEMENT: per-type AI (infantry→objectives, cavalry→enemies, artillery→stay/advance, archer→kite, DS pre-disruption→trail hex, DS post-disruption→objectives)
+3. TEMPORAL DISRUPTION CHECK: DS within COMBAT_RANGE of target trail hex → enemy yanked back, formation recomputed, cavalry lose charge. Wasted on dead unit trails. DS reverts to infantry AI after.
+4. RANGED PHASE: artillery/archer shoot (one-way, skipped if in melee)
+5. MELEE PHASE: all pairs within COMBAT_RANGE fight simultaneously (melee profiles for artillery/archer; disrupted cavalry lose charge bonus)
+6. ARCHER RETREAT: archers that were in melee move 16 hex away from all units/objectives
+7. OBJECTIVE CHECK: OC-based control (sum of models × oc per player within OC_RADIUS 4; most OC wins)
 ```
 
 ## Replay mode
@@ -139,11 +149,13 @@ During deployment, the player can switch between four view modes to control visu
 | Key | Mode | What it shows |
 |-----|------|---------------|
 | 1 | CLEAN | All units at final position only. Preview unit gets full timeline (path, ghosts, trail). |
-| 2 | CHANGED | Full timelines for units whose fate changed due to preview placement + preview unit. Rest at final position. |
+| 2 | CHANGED | 70% dark fog overlay dims the entire map. Changed units' old/new paths crossfade smoothly (1s per phase): pale purple = old timeline (WITHOUT), pale yellow = new timeline (WITH UNIT). Preview unit keeps team-colored trail. Unchanged units shown as dim silhouettes. Falls back to CLEAN when no preview active. |
 | 3 | FULL | Full timelines for ALL units at 2x speed. Enhanced snail-trail visuals (thicker lines, higher opacity) — the spacetime worm view. |
 | 4 | FINAL | Static end-state. All units at final/death positions, final objective control. No animation. |
 
 Combat sparks are filtered per view mode — only shown when at least one participant has a visible timeline.
+
+**H key** — Toggle deploy heatmap overlay (off by default). Shows VP delta per hex during deployment.
 
 ## Narrative Preview Panel
 When hovering a deploy hex, a text panel appears below the fate chart summarizing the preview unit's projected fate:
@@ -151,6 +163,39 @@ When hovering a deploy hex, a text panel appears below the fate chart summarizin
 - Combat partners (who it fights)
 - Survival or elimination (and which turn)
 - VP impact (score delta from this placement)
+
+## Deep Strike Temporal Disruption
+DS units arrive with one temporal disruption charge. Instead of normal objective AI, they pathfind to the **nearest enemy trail hex** (any past-turn position from `formations_timeline`, including eliminated units and other DS).
+
+**Trigger:** DS reaches COMBAT_RANGE (2) of target trail hex.
+**Effect:** Enemy teleported to trail position, formation recomputed. Disrupted cavalry lose charge bonus (yanked = lost momentum).
+**Limits:** One disruption per DS. One enemy can be disrupted by multiple DS units.
+**Risk:** Targeting a dead unit's trail wastes the disruption (intentional skill element).
+**After use:** DS reverts to infantry AI (objective-focused).
+**Persistence:** DS hunts trail hex across multiple turns if it can't reach on arrival turn.
+
+**New unit state fields:**
+- `has_disrupted` (bool) — DS has used its temporal disruption
+- `disrupted` (bool) — unit was yanked by a DS
+- `disrupted_turn` (int) — which turn disruption happened
+- `disrupted_from` (Vector2i) — position before yank (for visual break)
+
+**New function:** `_pick_trail_target(uid, units, formations_timeline, turn)` — scans `formations_timeline` for nearest enemy trail hex reachable by this DS unit.
+
+**Combat log:** Shows "TEMPORAL DISRUPTION" messages when disruption occurs, or "disruption wasted" when targeting dead unit trail.
+
+**Visual:** Worm fractures at disruption point — purple jagged line from old position to yanked position, X mark at severed old fate, ribbon gap in worm.
+
+## Trail Hover Tooltip
+Hovering over any unit's trail (any past-turn formation hex) during DEPLOY or DONE phases shows a tooltip near the cursor with that unit's stats:
+- Unit name and type prefix
+- Survival status (alive with model count, or eliminated on turn N)
+- Total damage dealt
+- Kill count
+- Objectives held (count of "yes"/"won")
+- Disruption status (disrupted on turn N, or used disruption)
+
+The hovered unit's entire trail is highlighted with a bright team-colored glow and outline. Detection uses `_find_trail_uid_at_hex()` which scans `formations_timeline` for the hex under the cursor. State tracked via `hover_trail_uid` (updated in `_input()`).
 
 ## Timeline Shifted Popup — Placed Unit Performance
 After unit placement, the "TIMELINE SHIFTED" popup now always includes the placed unit's performance summary immediately after the header (e.g., "Blue placed A Odo"). This line shows:
@@ -201,9 +246,10 @@ Three files enable running the simulation without the Godot GUI:
 ## Simulation architecture
 - `simulate(all_units: Array) -> Dictionary`
   - `all_units` = array of {player, col, row, unit_type, start_turn (optional)} dicts for every unit in the sim
-  - returns `{ timelines, units, combat, obj_control, vp_per_turn, unit_names, unit_obj, unit_kills, unit_dmg, combat_log, obj_ctrl_history, unit_snapshots }`
-  - `timelines[uid]` = `Array[Vector2i]` of positions, index 0 = initial
-  - `units[uid]` = final state dict `{ player, col, row, unit_type, models, eliminated, elim_turn }`
+  - returns `{ timelines, formations_timeline, units, combat, obj_control, vp_per_turn, unit_names, unit_obj, unit_kills, unit_dmg, combat_log, obj_ctrl_history, unit_snapshots }`
+  - `timelines[uid]` = `Array[Vector2i]` of anchor positions, index 0 = initial
+  - `formations_timeline[uid]` = `Array[Array[Vector2i]]` of formation hex snapshots per turn
+  - `units[uid]` = final state dict `{ player, col, row, unit_type, models, eliminated, elim_turn, formation, has_disrupted, disrupted, disrupted_turn, disrupted_from }`
   - `combat[turn]` = Array of `{ a, b, ac, ar, bc, br }` pairs
   - `obj_control` = final objective control array [0/1/2 per objective]
   - `vp_per_turn[t]` = [p1_cumulative_vp, p2_cumulative_vp]

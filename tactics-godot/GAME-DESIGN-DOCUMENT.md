@@ -120,23 +120,21 @@ The player's entire puzzle is: "If I place my unit here, how does that change wh
 
 ## Map
 
-- **Grid:** Flat-top hex, isometric rendering (Final Fantasy Tactics style)
-- **CONFIRMED target dimensions: 120 cols × 88 rows** (requires zoom/pan controls)
-- Tileset: `assets/hex tactics assets/tileset hex tommy.png` — 384×384px, ~8 tiles per column, each tile ~48×48px
-- Isometric tile rendering: painter's algorithm (back-to-front row/col sort for z-ordering)
-- Hex math switches from pointy-top odd-r to flat-top offset coordinates
+- **Grid:** Flat-top hex, odd-q offset coordinates
+- **Dimensions: 56 cols × 40 rows**
+- Hex math uses flat-top offset coordinates
 
 ### Deployment Zones
-- **Player 1 (bottom):** Bottom 18 rows, columns 18–101
-- **Player 2 (top):** Top 18 rows, columns 18–101
+- **Player 1 (bottom):** Rows 32–39, columns 4–51
+- **Player 2 (top):** Rows 0–7, columns 4–51
 - Zone highlighted during active player's deployment turn
 
 ### Objectives
-- 3 objectives in the center band (rows ~38–43 in 88-row grid)
-- Default positions: center (60,43), left flank (30,38), right flank (90,38)
-- **CONFIRMED control:** Most models within radius 2 at end of each turn. Ties = contested (no one controls).
+- 3 objectives in the center band (rows 18–20 in 40-row grid)
+- Default positions: left (14,20), center (28,18), right (42,20)
+- **CONFIRMED control:** Most OC (models × oc) with formation within OC_RADIUS (4) at end of each turn. Ties = contested (no one controls).
 - **CONFIRMED pathfinding priority:** Units ignore friendly-held objectives. Target nearest unclaimed or enemy-held objective. If all objectives friendly-held, advance toward nearest enemy.
-- **CONFIRMED visual:** Radius 2 hexes subtly tinted around each objective
+- **CONFIRMED visual:** OC_RADIUS (4) hexes subtly tinted around each objective
 
 ---
 
@@ -171,7 +169,7 @@ Units with a `range` stat (Artillery, Archer) fire if no enemy is within COMBAT_
 
 ```
 For each ranged unit not in melee:
-  Find target (artillery: furthest in range 20; archer: nearest in range 8)
+  Find target (artillery: furthest in range 40; archer: nearest in range 24)
   For each model × ranged_attacks:
     1. HIT ROLL:   roll 1d6 >= ranged_hit
     2. WOUND ROLL: roll 1d6 >= ranged_wound
@@ -191,11 +189,12 @@ For each model × melee_attacks (or regular attacks for infantry/cavalry/DS):
   3. ARMOR SAVE: defender rolls 1d6 >= (defender.armor + melee_rend)
   4. DAMAGE:     wounds per failed save = melee_damage
 Both sides' model counts are snapshotted before damage is applied.
+Cavalry charge bonus: if cavalry started the turn in COMBAT_RANGE, damage per hit = 1 (not 2).
 ```
 
 ### Archer Retreat Phase
 
-After melee, any archer that was in melee and survived moves 5 hex away, choosing the hex that maximizes minimum distance from all other units and objectives.
+After melee, any archer that was in melee and survived retreats away, choosing the hex that maximizes minimum distance from all other units and objectives. Archers always retreat from melee (16 hex retreat, outruns infantry move 10). On their **first** melee encounter, damage is halved both ways (archer deals and takes half). Subsequent melee encounters deal full damage but archers still retreat.
 
 ### Wound Tracking
 
@@ -212,30 +211,34 @@ Partial damage carries over between turns. Each unit tracks accumulated wounds. 
 |----------|-------|------------------------------|
 | Models   | 10    | 10 figures per unit          |
 | HP       | 2     | wounds per model             |
-| Move     | 6     | hexes per turn               |
+| Footprint | 5    | ceil(10/2) hexes             |
+| Move     | 10    | hexes per turn               |
 | Attacks  | 2     | per model                    |
 | Accuracy | 3+    | hit on 3 or higher           |
 | Wound    | 3+    | wound on 3 or higher         |
 | Rend     | 1     | subtracts from armor save    |
 | Armor    | 4+    | save on 4 or higher          |
 | Damage   | 1     | wounds per failed save       |
-| Obj Weight | 1.0 | full capture weight          |
+| OC       | 1     | objective control per model  |
 
 **AI:** Move toward nearest unclaimed/enemy objective. If all friendly, advance toward nearest enemy.
 
 ### Cavalry
 | Stat     | Value | Notes                        |
 |----------|-------|------------------------------|
-| Models   | 5     | 5 figures per unit           |
-| HP       | 5     | wounds per model             |
-| Move     | 10    | hexes per turn               |
+| Models   | 6     | 6 figures per unit           |
+| HP       | 3     | wounds per model             |
+| Footprint | 3    | ceil(6/2) hexes              |
+| Move     | 24    | hexes per turn               |
 | Attacks  | 2     | per model                    |
 | Accuracy | 4+    | hit on 4 or higher           |
 | Wound    | 3+    | wound on 3 or higher         |
 | Rend     | 2     | subtracts from armor save    |
-| Armor    | 3+    | save on 3 or higher          |
+| Armor    | 4+    | save on 4 or higher          |
 | Damage   | 2     | wounds per failed save       |
-| Obj Weight | 1.0 | full capture weight          |
+| OC       | 1     | objective control per model  |
+
+**Charge bonus:** Cavalry that started the turn already in melee range (COMBAT_RANGE) of any enemy lose their charge bonus — damage drops from 2 to 1 per hit. Cavalry charging in fresh deal full damage 2.
 
 **AI:** Hunt nearest enemy unit. If no enemies in range, move toward objectives.
 
@@ -244,63 +247,80 @@ Partial damage carries over between turns. Each unit tracks accumulated wounds. 
 |----------|-------|------------------------------|
 | Models   | 1     | single model                 |
 | HP       | 12    | tough but slow               |
-| Move     | 4     | hexes per turn               |
+| Footprint | 5    | fixed (does not shrink)      |
+| Move     | 8     | hexes per turn               |
 | Ranged Attacks | 4 | per model                  |
 | Ranged Accuracy | 4+ | hit on 4 or higher        |
 | Ranged Wound | 2+ | wound on 2 or higher        |
 | Ranged Rend | 1   | subtracts from armor save    |
 | Ranged Damage | 3 | wounds per failed save       |
-| Range    | 20    | hex range for shooting       |
+| Range    | 40    | hex range for shooting       |
 | Melee Attacks | 1 | weak in melee               |
 | Melee Hit | 5+   | poor melee accuracy          |
 | Melee Wound | 4+ | poor melee wounding          |
 | Melee Rend | 0   | no armor penetration         |
 | Melee Damage | 1 | minimal melee output         |
-| Armor    | 5+    | light armor                  |
-| Obj Weight | 0.0 | cannot capture objectives    |
+| Armor    | 4+    | save on 4 or higher          |
+| OC       | 1     | objective control per model  |
 
-**AI:** If ranged target exists within 20 hexes, stay and shoot (targets furthest enemy). If no ranged target, walks straight forward toward enemy deployment side (does NOT chase objectives). **Silenced in melee** — cannot shoot when enemy is within COMBAT_RANGE. **Cannot capture objectives** (obj_weight 0.0).
+**AI:** If ranged target exists within 40 hexes, stay and shoot (targets furthest enemy). If no ranged target, walks straight forward toward enemy deployment side (does NOT chase objectives). **Silenced in melee** — cannot shoot when enemy is within COMBAT_RANGE.
 
 ### Deep Strike
 | Stat     | Value | Notes                        |
 |----------|-------|------------------------------|
-| Models   | 6     | 6 figures per unit           |
-| HP       | 2     | wounds per model             |
-| Move     | 8     | hexes per turn               |
+| Models   | 8     | 8 figures per unit           |
+| HP       | 3     | wounds per model             |
+| Footprint | 4    | ceil(8/2) hexes              |
+| Move     | 16    | hexes per turn               |
 | Attacks  | 2     | per model                    |
 | Accuracy | 4+    | hit on 4 or higher           |
 | Wound    | 4+    | wound on 4 or higher         |
 | Rend     | 0     | no armor penetration         |
 | Damage   | 1     | wounds per failed save       |
-| Armor    | 4+    | save on 4 or higher          |
-| Obj Weight | 0.5 | half capture weight          |
+| Armor    | 5+    | light armor                  |
+| OC       | 1     | objective control per model  |
 
-**Delayed entry:** Deployed anywhere on the map (must be 9+ hexes from all enemies at chosen arrival turn). Player selects arrival turn (T2–T8) during deployment. Unit materializes on that turn.
+**Delayed entry:** Deployed anywhere on the map (must be 17+ hexes from all enemies at chosen arrival turn — CAVALRY_AGGRO + 1). Player selects arrival turn (T2–T8) during deployment. Unit materializes on that turn.
 
-**AI:** Same as infantry (objective-focused) once arrived.
+**Temporal Disruption:** Each DS unit arrives with one temporal disruption charge. Instead of moving toward objectives, the DS pathfinds to the **nearest enemy trail hex** — any past-turn position from `formations_timeline` of any enemy unit (including eliminated units and other DS units). When the DS reaches COMBAT_RANGE (2) of that trail hex, the disruption triggers:
+- The targeted enemy is **teleported back** to the trail position, and their formation is recomputed at the new location
+- Disrupted cavalry **lose their charge bonus** (yanked = lost momentum)
+- One disruption per DS unit, but a single enemy can be disrupted multiple times by different DS units
+- Targeting a dead unit's trail **wastes** the disruption (intentional skill element / risk — the DS spent its charge on a ghost)
+- After disruption is used (or wasted), the DS reverts to normal targeting behavior (objective-focused, same as infantry)
+- The DS keeps hunting its target trail hex across multiple turns if it cannot reach within COMBAT_RANGE on arrival turn
+
+**New unit state fields:**
+- `has_disrupted` (bool) — true once the DS has used (or wasted) its temporal disruption
+- `disrupted` (bool) — true on any unit that was yanked by a DS disruption
+- `disrupted_turn` (int) — which turn the disruption occurred
+- `disrupted_from` (Vector2i) — position before yank (used for the visual break in the worm)
+
+**AI:** On arrival, pathfinds toward nearest enemy trail hex (via `_pick_trail_target()`). After disruption is spent, reverts to infantry AI (objective-focused).
 
 ### Archer
 | Stat     | Value | Notes                        |
 |----------|-------|------------------------------|
-| Models   | 5     | 5 figures per unit           |
+| Models   | 8     | 8 figures per unit           |
 | HP       | 2     | wounds per model             |
-| Move     | 5     | hexes per turn               |
+| Footprint | 4    | ceil(8/2) hexes              |
+| Move     | 16    | hexes per turn               |
 | Ranged Attacks | 2 | per model                  |
 | Ranged Accuracy | 3+ | hit on 3 or higher        |
 | Ranged Wound | 2+ | wound on 2 or higher        |
 | Ranged Rend | 0   | no armor penetration         |
 | Ranged Damage | 1 | wounds per failed save       |
-| Range    | 8     | hex range for shooting       |
+| Range    | 24    | hex range for shooting       |
 | Melee Attacks | 1 | weak in melee               |
 | Melee Hit | 5+   | poor melee accuracy          |
 | Melee Wound | 5+ | poor melee wounding          |
 | Melee Rend | 0   | no armor penetration         |
 | Melee Damage | 1 | minimal melee output         |
 | Armor    | 5+    | light armor                  |
-| Retreat  | 5     | hex retreat after melee      |
-| Obj Weight | 0.5 | half capture weight          |
+| Retreat  | 16    | hex retreat after melee      |
+| OC       | 1     | objective control per model  |
 
-**AI:** Kites at range 8 — approaches nearest enemy within 8 hex but avoids entering COMBAT_RANGE (2 hex). After taking melee combat, retreats 5 hex away from all units/objectives. Targets nearest enemy in range. If no enemies in range, moves toward nearest unclaimed/enemy objective.
+**AI:** Kites at range 24 — approaches nearest enemy within 24 hex but avoids entering COMBAT_RANGE (2 hex). After taking melee combat, always retreats 16 hex away from all units/objectives. First melee encounter: half damage both ways. Subsequent melee: full damage, still retreats. Targets nearest enemy in range. If no enemies in range, moves toward nearest unclaimed/enemy objective.
 
 ### Universal Rules
 - Each model shoots OR melees per turn, not both
@@ -310,10 +330,21 @@ Partial damage carries over between turns. Each unit tracks accumulated wounds. 
 
 **CONFIRMED:** All 5 unit types implemented. Free pick, 8 units per side, no point budget (tabled for later).
 
+### Multi-Hex Formations
+Units occupy multiple hexes based on their model count. The **footprint** formula is `ceil(surviving_models / 2)`. Artillery has a fixed footprint of 5 hexes regardless of model count (it's 1 model but occupies a large area).
+
+- **Shape:** Compact cluster — BFS outward from the anchor hex, filling nearest unblocked hexes first
+- **Movement:** The anchor hex pathfinds via A*; the formation recomputes at the destination
+- **Combat range:** Measured as the minimum distance between any hex of the attacker's formation and any hex of the defender's formation
+- **Shrinking on casualties:** When models die and the new footprint is smaller, hexes closest to the nearest enemy are released first — the unit contracts backward, opening space near objectives for enemies to walk onto
+- **Objective control:** Uses `formation_dist_to_hex(formation, objective) <= OC_RADIUS` (4) — any formation hex within 4 of an objective counts. OC total = `oc × surviving_models`
+- **Blocking:** All formation hexes block movement for other units (both friendly and enemy)
+- **Deploy zone constraint:** At deploy time, formations are compacted strictly within the legal deploy zone. The BFS cluster growth only fills hexes inside the zone and not occupied by other formations. Stored as a `formation` field on the placed unit dict so `simulate()` can reuse the exact formation.
+
 ### Future Unit Concept: Interceptor / Slicer
-> **Not yet implemented — design exploration only.**
+> **Partially realized via Deep Strike Temporal Disruption.**
 >
-> A unit type that interacts with other units' **spacetime worm shapes** rather than their current position. It blocks or redirects the 4D trajectory of enemy units, forcing them to reroute through spacetime. This is the mechanical payoff for the spacetime worm visual language — the player must already be thinking in terms of worm shapes for this unit to make sense. Implementation depends on the worm rendering being visually legible first.
+> The original concept: a unit type that interacts with other units' **spacetime worm shapes** rather than their current position. Deep Strike's temporal disruption delivers this — DS units pathfind to enemy trail hexes (past worm positions) and yank enemies back through spacetime, fracturing their worm. The visual payoff (worm break, purple jagged line, X mark at severed fate) makes the spacetime worm metaphor mechanically meaningful. Future iterations could expand this with more worm-interaction abilities (blocking trajectories, redirecting paths, etc.).
 
 ---
 
@@ -325,6 +356,7 @@ Partial damage carries over between turns. Each unit tracks accumulated wounds. 
   - Formula: `opacity = 0.15 + (turn_index / max_turns) * 0.60`
 - Trail token **shrinks** proportionally with model count (thinner = more casualties)
 - Trail **stops** at the turn the unit was eliminated (no ghost trail past death)
+- **Temporal disruption break:** When a unit is yanked by DS disruption, its worm fractures at the disruption point — a purple jagged line from the old position to the yanked position, an X mark at the severed old fate, and a ribbon gap in the worm trail. This visually communicates the spacetime break.
 
 ### Unit Tokens
 - **Infantry:** Shield shape with cross emblem
@@ -345,7 +377,7 @@ Partial damage carries over between turns. Each unit tracks accumulated wounds. 
 ### Objectives
 - Flagpole with triangular banner on the objective hex
 - Banner color changes to reflect controlling player (or stays neutral gold if uncontested)
-- **CONFIRMED:** Radius 2 hexes around each objective are subtly tinted to show the control zone.
+- **CONFIRMED:** OC_RADIUS (4) hexes around each objective are subtly tinted to show the control zone.
 
 ### Deployment Phase
 - Active player's deployment zone highlighted brightly
@@ -361,11 +393,13 @@ During deployment, the player can toggle between four view modes to control info
 | Key | Mode | Description |
 |-----|------|-------------|
 | 1 | CLEAN | All units shown at final position only. The preview unit gets a full timeline (path highlights, trail, ghosts). Ideal for reading the board at a glance. |
-| 2 | CHANGED | Full timelines for units whose fate changed due to the current preview placement, plus the preview unit. Unaffected units shown at final position. Default analytical view. |
+| 2 | CHANGED | "Fog of irrelevance" — 70% dark overlay dims the entire map. Changed units' paths crossfade smoothly between old timeline (pale purple, "WITHOUT" label) and new timeline (pale yellow, "WITH UNIT" label) at 1s per phase. Preview unit keeps its team-colored trail. Unchanged units shown as dim silhouettes (20% alpha). Falls back to CLEAN when no preview is active. |
 | 3 | FULL | Full timelines for ALL units simultaneously at 2x speed. Enhanced "snail trail" visuals (thicker lines, higher opacity) make units look like spacetime worms — continuous objects stretching through time. This is the game's true visual identity. |
 | 4 | FINAL | Static end-state snapshot. All units at turn 10 positions (or elimination positions), final objective control, final score. No animation. Quick reference for "who won where." |
 
 Combat sparks (crossed swords) are filtered per view mode — they only appear for fights where at least one participant has a visible timeline. This prevents confusing spark markers in CLEAN mode.
+
+**H key** — Toggle deploy heatmap overlay (off by default). When enabled, every legal deploy hex is tinted by its projected VP delta, showing at a glance which placements are strongest. Computed incrementally (2-3 sims per frame).
 
 ### Narrative Preview Panel
 When hovering a valid deploy hex, a narrative text panel appears below the unit fate chart on the right side. It summarizes the preview unit's projected fate in plain text:
@@ -376,13 +410,24 @@ When hovering a valid deploy hex, a narrative text panel appears below the unit 
 
 This gives the player a quick textual summary without needing to parse the visual timeline.
 
+### Trail Hover Tooltip
+Hovering over any unit's trail (any past-turn formation hex) during deployment or after all units are placed shows a tooltip near the cursor summarizing that unit's performance:
+- Unit name and type
+- Survival status (alive with model count, or eliminated and which turn)
+- Total damage dealt
+- Kill count
+- Objectives held
+- Disruption status (if applicable)
+
+The hovered unit's entire trail lights up with a bright team-colored glow and outline, making it easy to trace the full spacetime worm. This works in both DEPLOY and DONE phases.
+
 ### Visual Concern: Battlefield Clutter — ADDRESSED
 - With 16 units, simultaneous ghost trails, path lines, combat sparks, and objective highlights, the map can be visually overwhelming
 - **View mode system** (keys 1–4) gives the player full control over information density
 - **Combat spark filtering** prevents irrelevant fight markers from cluttering quieter view modes
 - **Narrative preview panel** provides textual alternative to visual parsing
 - **Font sizes increased ~30%** for readability on high-resolution monitors
-- The freeze-unaffected-units system during preview remains active in CHANGED mode
+- **CHANGED mode "fog of irrelevance"**: 70% dark overlay dims the entire map, spotlighting only changed trails at boosted brightness with red/green diff comparison. Unchanged units appear as dim silhouettes
 
 ---
 
@@ -423,15 +468,17 @@ Each simulated turn:
 2. MOVEMENT: per-type AI determines goal and unit walks toward it via A*
    - Infantry: nearest unclaimed/enemy objective; if all friendly, nearest enemy
    - Cavalry: nearest enemy; if none, objectives
-   - Artillery: stay if ranged target in range 20; else advance toward center
-   - Archer: kite at range 8 (approach enemy but avoid COMBAT_RANGE); else objectives
-   - Deep Strike: same as infantry (once arrived)
-3. RANGED PHASE: artillery/archer shoot if not in melee (one-way, target doesn't return fire)
-   - Artillery: targets furthest enemy within 20 hex
-   - Archer: targets nearest enemy within 8 hex
-4. MELEE PHASE: all pairs within COMBAT_RANGE resolve simultaneously (melee profiles for artillery/archer)
-5. ARCHER RETREAT: archers that were in melee move 5 hex away from all units/objectives
-6. OBJECTIVE CHECK: weighted control (obj_weight × models per player within radius 2)
+   - Artillery: stay if ranged target in range 40; else advance toward center
+   - Archer: kite at range 24 (approach enemy but avoid COMBAT_RANGE); else objectives
+   - Deep Strike (pre-disruption): pathfind toward nearest enemy trail hex (via `_pick_trail_target()`)
+   - Deep Strike (post-disruption): same as infantry (objective-focused)
+3. TEMPORAL DISRUPTION CHECK: DS units within COMBAT_RANGE (2) of their target trail hex trigger disruption — enemy teleported back, formation recomputed, cavalry lose charge bonus. Wasted if target is dead. DS reverts to normal AI after.
+4. RANGED PHASE: artillery/archer shoot if not in melee (one-way, target doesn't return fire)
+   - Artillery: targets furthest enemy within 40 hex
+   - Archer: targets nearest enemy within 24 hex
+5. MELEE PHASE: all pairs within COMBAT_RANGE resolve simultaneously (melee profiles for artillery/archer; cavalry charge bonus: dmg 2→1 if started turn in melee range; disrupted cavalry lose charge bonus)
+6. ARCHER RETREAT: archers that were in melee retreat 16 hex away (first melee = half damage both ways; subsequent = full damage, still retreat)
+7. OBJECTIVE CHECK: OC-based control (sum of models × oc per player within formation OC_RADIUS (4) of objective)
 ```
 
 ---
@@ -439,11 +486,10 @@ Each simulated turn:
 ## Scoring System — CONFIRMED
 
 - **Victory Points (VP):** 5 VP per objective held per turn
-- Persistent objective control: weighted model count (obj_weight × models) within radius 2
-  - Infantry/Cavalry: weight 1.0 (full)
-  - Deep Strike/Archer: weight 0.5 (half)
-  - Artillery: weight 0.0 (cannot capture)
-- Ties in weighted presence = contested (no change in control)
+- Persistent objective control: OC-based (models × oc stat) within formation OC_RADIUS (4)
+  - All unit types: OC 1 per model
+  - Total OC = surviving models × oc for each unit with formation hexes within 2 of objective
+- Ties in OC presence = contested (no change in control)
 - **10 turns total** — final score determines winner
 - Tie VP = draw
 
@@ -462,6 +508,7 @@ Each simulated turn:
 ### Combat Log
 - Left-side scrollable panel (340px wide)
 - Play-by-play: deployment listing, per-turn movement, combat detail (wounds, models killed, eliminations), objective status, VP score
+- **Temporal disruption events:** "TEMPORAL DISRUPTION" message when a DS yanks an enemy (includes source DS, target unit, trail position); "disruption wasted" when targeting a dead unit's trail
 - Color-coded lines (yellow=headers, blue=turns, red=eliminations, green=scores)
 - Scroll with mouse wheel over log area
 - Also written to `user://combat_log.txt` on each simulation run
@@ -504,9 +551,10 @@ In order — do not skip ahead:
 11. ✅ Unit selection popup (non-reversible, 5 types)
 12. ✅ Artillery, Deep Strike, Archer unit types
 13. ✅ Combat restructure: Ranged → Melee → Retreat phases
-14. ✅ Deep strike delayed entry (T2–T8, 9-hex exclusion)
+14. ✅ Deep strike delayed entry (T2–T8, 17-hex exclusion)
 15. ✅ Weighted objective control
-16. ⬜ Point budget / army composition constraints
+16. ✅ Deep Strike temporal disruption (trail targeting, enemy yank, worm fracture visual)
+17. ⬜ Point budget / army composition constraints
 
 ---
 
@@ -517,15 +565,15 @@ In order — do not skip ahead:
 | 1 | Total units per player | **8 per player (16 total)** |
 | 2 | Preview sim includes enemy reactions | **Yes — local butterfly effect (only nearby fights change)** |
 | 3 | Battle display mode | **Looping animation ~0.6s/turn + side panel scrubber** |
-| 4 | Grid size | **120 × 88, flat-top isometric (FFT style)** |
-| 5 | Objective control | **Most models within radius 2 at end of turn; ties = contested** |
+| 4 | Grid size | **56 × 40, flat-top odd-q offset** |
+| 5 | Objective control | **Most OC (models × oc) with formation within OC_RADIUS (4); ties = contested** |
 | 6 | Combat range | **2 hexes** |
 | 7 | Objective pathfinding priority | **Nearest unclaimed or enemy-held; ignore friendly-held; else advance to nearest enemy** |
 | 8 | Damage carry-over | **Yes — wound accumulation persists across turns** |
 | 9 | Multi-enemy combat | **Fight nearest single enemy only** |
 | 10 | Unit types in prototype | **5 types: Infantry, Cavalry, Artillery, Deep Strike, Archer** |
 | 11 | Army composition | **8 units, free pick from 5 types. Point budget tabled for later.** |
-| 12 | Objective radius visual | **Yes — subtle tint on radius 2 hexes** |
+| 12 | Objective radius visual | **Yes — subtle tint on OC_RADIUS (4) hexes** |
 | 13 | RNG seed method | **Per-combat seed from pair + turn + nearby unit positions (local butterfly effect)** |
 | 14 | Preview dice | **Exact — player sees the precise future for this seed** |
 | 15 | P2 control (prototype) | **Pass-the-mouse local 2-player. Future: online ELO matchmaking + AI** |

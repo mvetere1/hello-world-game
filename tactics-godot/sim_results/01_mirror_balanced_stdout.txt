@@ -1,0 +1,36 @@
+﻿Godot Engine v4.6.stable.official.89cea1439 - https://godotengine.org
+
+Simulating 16 units (8 Blue, 8 Red)...
+Results written to: C:/Users/bigto/AppData/Roaming/Godot/app_userdata/Hex Move Demo/results.json
+Combat log written to: C:/Users/bigto/AppData/Roaming/Godot/app_userdata/Hex Move Demo/combat_log.txt
+
+========================================
+  BATTLE RESULTS
+========================================
+Winner: Red
+Score:  Blue 50  -  Red 100
+
+  Obj 1: Red
+  Obj 2: Red
+  Obj 3: Red
+
+--- BLUE ---
+  I Ben: DEAD (turn 3) | 6 dmg, 0 kills
+  I Dan: DEAD (turn 3) | 17 dmg, 0 kills
+  I Ada: DEAD (turn 8) | 7 dmg, 0 kills
+  C Odo: DEAD (turn 5) | 26 dmg, 0 kills
+  C Kit: DEAD (turn 9) | 20 dmg, 0 kills
+  A Gil: DEAD (turn 2) | 9 dmg, 0 kills
+  A Jay: DEAD (turn 2) | 4 dmg, 0 kills
+  D Rex: DEAD (turn 5) | 4 dmg, 0 kills
+
+--- RED ---
+  I Hal: ALIVE (5 models) | 23 dmg, 3 kills
+  I Sam: ALIVE (2 models) | 8 dmg, 0 kills
+  I Ned: ALIVE (4 models) | 16 dmg, 1 kills
+  C Pat: ALIVE (1 models) | 32 dmg, 2 kills
+  C Leo: ALIVE (1 models) | 20 dmg, 0 kills
+  A Ida: ALIVE (1 models) | 39 dmg, 2 kills
+  A Tom: ALIVE (5 models) | 12 dmg, 0 kills
+  D Finn: ALIVE (5 models) | 3 dmg, 0 kills
+

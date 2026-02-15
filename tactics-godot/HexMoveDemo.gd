@@ -4,59 +4,60 @@ extends Node2D
 # CONFIGURATION
 # ============================================================================
 
-const COLS          = 28
-const ROWS          = 20
+const COLS          = 56
+const ROWS          = 40
 const HEX_SIZE      = 20.0   # circumradius of hex (center to corner)
 
 const UNITS_PER_SIDE = 8
 const TURNS          = 10
 const COMBAT_RANGE   = 2
 const TURN_DURATION  = 0.8   # seconds per animation frame
+const OC_RADIUS      = 4     # objective control radius in hexes
+const CAVALRY_AGGRO  = 16    # cavalry hunt range in hexes
 
 # Deployment zones
-const P1_DEPLOY_ROWS_MIN = 16
-const P1_DEPLOY_ROWS_MAX = 19
+const P1_DEPLOY_ROWS_MIN = 32
+const P1_DEPLOY_ROWS_MAX = 39
 const P2_DEPLOY_ROWS_MIN = 0
-const P2_DEPLOY_ROWS_MAX = 3
-const DEPLOY_C_MIN       = 2
-const DEPLOY_C_MAX       = 25
+const P2_DEPLOY_ROWS_MAX = 7
+const DEPLOY_C_MIN       = 4
+const DEPLOY_C_MAX       = 51
 
 const OBJECTIVES = [
-	Vector2i(7,  10),
-	Vector2i(14, 9),
-	Vector2i(21, 10),
+	Vector2i(14, 20),
+	Vector2i(28, 18),
+	Vector2i(42, 20),
 ]
 
 const INFANTRY = {
-	"models": 10, "hp": 2, "move": 6,
+	"models": 10, "hp": 2, "move": 10,
 	"attacks": 2, "hit": 3, "wound": 3, "rend": 1, "armor": 4, "damage": 1,
-	"can_capture": true, "obj_weight": 1.0,
+	"oc": 1,
 }
 const CAVALRY = {
-	"models": 5, "hp": 5, "move": 10,
-	"attacks": 2, "hit": 4, "wound": 3, "rend": 2, "armor": 3, "damage": 2,
-	"can_capture": true, "obj_weight": 1.0,
+	"models": 6, "hp": 3, "move": 24,
+	"attacks": 2, "hit": 4, "wound": 3, "rend": 2, "armor": 4, "damage": 2,
+	"oc": 1,
 }
 const ARTILLERY = {
-	"models": 1, "hp": 12, "move": 4,
+	"models": 1, "hp": 12, "move": 8, "footprint": 5,
 	"attacks": 4, "hit": 4, "wound": 2, "rend": 1, "damage": 3,
-	"range": 20, "targets_furthest": true,
+	"range": 40, "targets_furthest": true,
 	"melee_attacks": 1, "melee_hit": 5, "melee_wound": 4, "melee_rend": 0, "melee_damage": 1,
-	"can_capture": false, "obj_weight": 0.0,
+	"armor": 4, "oc": 1,
 }
 const DEEP_STRIKE = {
-	"models": 6, "hp": 2, "move": 8,
+	"models": 8, "hp": 3, "move": 16,
 	"attacks": 2, "hit": 4, "wound": 4, "rend": 0, "damage": 1,
-	"armor": 4,
-	"can_capture": true, "obj_weight": 0.5,
+	"armor": 5, "oc": 1,
 }
 const ARCHER = {
-	"models": 5, "hp": 2, "move": 5,
+	"models": 8, "hp": 2, "move": 16,
 	"attacks": 2, "hit": 3, "wound": 2, "rend": 0, "damage": 1,
-	"range": 8,
+	"range": 24,
 	"melee_attacks": 1, "melee_hit": 5, "melee_wound": 5, "melee_rend": 0, "melee_damage": 1,
-	"armor": 5, "can_capture": true, "obj_weight": 0.5,
-	"retreat_move": 5,
+	"armor": 5, "oc": 1,
+	"retreat_move": 16,
 }
 const UNIT_TYPES = ["infantry", "cavalry", "artillery", "deep_strike", "archer"]
 
@@ -227,51 +228,127 @@ func find_path(sc: int, sr: int, gc: int, gr: int, blocked: Dictionary = {}) -> 
 	return result
 
 # ============================================================================
+# MULTI-HEX FORMATION HELPERS
+# ============================================================================
+
+func _compute_footprint(unit_type: String, models: int) -> int:
+	var stats = _get_stats(unit_type)
+	if stats.has("footprint"):
+		return stats.footprint  # fixed footprint (e.g. artillery)
+	return ceili(float(models) / 2.0)
+
+func compute_compact_cluster(anchor: Vector2i, size: int, blocked: Dictionary) -> Array[Vector2i]:
+	if size <= 0:
+		return []
+	var result: Array[Vector2i] = [anchor]
+	if size == 1:
+		return result
+	var used := {hex_id(anchor.x, anchor.y): true}
+	var frontier: Array[Vector2i] = [anchor]
+	while result.size() < size and not frontier.is_empty():
+		var candidates: Array[Vector2i] = []
+		for fh in frontier:
+			for nb in hex_neighbors(fh.x, fh.y):
+				var nid = hex_id(nb.x, nb.y)
+				if used.has(nid): continue
+				if blocked.has(nid): continue
+				if not is_valid_hex(nb.x, nb.y): continue
+				used[nid] = true
+				candidates.append(nb)
+		candidates.sort_custom(func(a, b):
+			return hex_dist(a.x, a.y, anchor.x, anchor.y) < hex_dist(b.x, b.y, anchor.x, anchor.y)
+		)
+		var next_frontier: Array[Vector2i] = []
+		for c in candidates:
+			if result.size() >= size: break
+			result.append(c)
+			next_frontier.append(c)
+		frontier = next_frontier
+	return result
+
+func formation_dist(form_a: Array, form_b: Array) -> int:
+	var best := 999999
+	for ha in form_a:
+		for hb in form_b:
+			var d = hex_dist(ha.x, ha.y, hb.x, hb.y)
+			if d < best:
+				best = d
+				if d <= 1: return d
+	return best
+
+func formation_dist_to_hex(formation: Array, target: Vector2i) -> int:
+	var best := 999999
+	for fh in formation:
+		var d = hex_dist(fh.x, fh.y, target.x, target.y)
+		if d < best:
+			best = d
+			if d == 0: return 0
+	return best
+
+func _build_blocked_from_units(units: Array, exclude_uid: int, turn: int, exclude_goal: Vector2i = Vector2i(-999, -999)) -> Dictionary:
+	var blocked := {}
+	for i in units.size():
+		if i == exclude_uid or units[i].eliminated: continue
+		if units[i].start_turn > 0 and turn < units[i].start_turn: continue
+		var form: Array = units[i].get("formation", [])
+		if form.is_empty():
+			# Fallback: use single hex if formation not yet computed
+			blocked[hex_id(units[i].col, units[i].row)] = true
+		else:
+			for fh in form:
+				if fh == exclude_goal: continue
+				blocked[hex_id(fh.x, fh.y)] = true
+	return blocked
+
+# ============================================================================
 # SIMULATION
 # ============================================================================
 
 func _pick_target(uid: int, units: Array) -> Vector2i:
 	var u   = units[uid]
+	var u_form = u.get("formation", [Vector2i(u.col, u.row)])
 	var plr = u.player
 	var is_cav = u.unit_type == "cavalry"
 
-	# Cavalry: always hunt nearest enemy unless none within 8 hexes
+	# Cavalry: always hunt nearest enemy unless none within CAVALRY_AGGRO hexes
 	if is_cav:
 		var nearest_enemy := Vector2i(-1, -1)
 		var nearest_d     := 999999
 		for other in units:
 			if other.eliminated or other.player == plr: continue
 			if not other.get("arrived", true): continue
-			var d = hex_dist(u.col, u.row, other.col, other.row)
+			var o_form = other.get("formation", [Vector2i(other.col, other.row)])
+			var d = formation_dist(u_form, o_form)
 			if d < nearest_d:
 				nearest_d     = d
 				nearest_enemy = Vector2i(other.col, other.row)
-		if nearest_enemy.x >= 0 and nearest_d <= 8:
+		if nearest_enemy.x >= 0 and nearest_d <= CAVALRY_AGGRO:
 			return nearest_enemy
-		# No enemies within 8 — fall through to objective logic
+		# No enemies within CAVALRY_AGGRO — fall through to objective logic
 
 	# Compute objective control from current unit positions
-	var obj_control: Array = []  # 0=neutral, 1=P1, 2=P2
+	var obj_ctrl_local: Array = []  # 0=neutral, 1=P1, 2=P2
 	for obj in OBJECTIVES:
 		var cnt1 = 0; var cnt2 = 0
 		for other in units:
 			if other.eliminated: continue
 			if not other.get("arrived", true): continue
-			if hex_dist(other.col, other.row, obj.x, obj.y) <= 2:
+			var o_form = other.get("formation", [Vector2i(other.col, other.row)])
+			if formation_dist_to_hex(o_form, obj) <= OC_RADIUS:
 				if other.player == 1: cnt1 += 1
 				else:                  cnt2 += 1
-		if   cnt1 > cnt2: obj_control.append(1)
-		elif cnt2 > cnt1: obj_control.append(2)
-		else:             obj_control.append(0)
+		if   cnt1 > cnt2: obj_ctrl_local.append(1)
+		elif cnt2 > cnt1: obj_ctrl_local.append(2)
+		else:             obj_ctrl_local.append(0)
 
 	var best_pos  := Vector2i(-1, -1)
 	var best_dist := 999999
 
 	for i in OBJECTIVES.size():
-		var ctrl = obj_control[i]
-		var my_dist = hex_dist(u.col, u.row, OBJECTIVES[i].x, OBJECTIVES[i].y)
+		var ctrl = obj_ctrl_local[i]
+		var my_dist = formation_dist_to_hex(u_form, OBJECTIVES[i])
 		# If I'm personally holding this objective, stay here
-		if ctrl == plr and my_dist <= 2:
+		if ctrl == plr and my_dist <= OC_RADIUS:
 			return OBJECTIVES[i]
 		if ctrl == plr:
 			continue  # friendly-held by someone else — skip
@@ -288,7 +365,8 @@ func _pick_target(uid: int, units: Array) -> Vector2i:
 	for other in units:
 		if other.eliminated or other.player == plr: continue
 		if not other.get("arrived", true): continue
-		var d = hex_dist(u.col, u.row, other.col, other.row)
+		var o_form = other.get("formation", [Vector2i(other.col, other.row)])
+		var d = formation_dist(u_form, o_form)
 		if d < nearest_d:
 			nearest_d     = d
 			nearest_enemy = Vector2i(other.col, other.row)
@@ -298,6 +376,7 @@ func _pick_target(uid: int, units: Array) -> Vector2i:
 
 func _nearest_enemy_in_range(uid: int, units: Array, range_val: int) -> int:
 	var u = units[uid]
+	var u_form = u.get("formation", [Vector2i(u.col, u.row)])
 	var best_eid = -1
 	var best_d   = range_val + 1
 	for eid in units.size():
@@ -305,11 +384,51 @@ func _nearest_enemy_in_range(uid: int, units: Array, range_val: int) -> int:
 		var e = units[eid]
 		if e.eliminated or e.player == u.player: continue
 		if not e.get("arrived", true): continue  # deep strike not yet arrived
-		var d = hex_dist(u.col, u.row, e.col, e.row)
+		var e_form = e.get("formation", [Vector2i(e.col, e.row)])
+		var d = formation_dist(u_form, e_form)
 		if d <= range_val and d < best_d:
 			best_d   = d
 			best_eid = eid
 	return best_eid
+
+func _pick_trail_target(uid: int, units: Array, timelines: Array, formations_timeline: Array, turn: int) -> Dictionary:
+	# DS temporal disruption: find nearest enemy trail hex (any past turn, any enemy including dead)
+	# Returns {hex: Vector2i, enemy_uid: int, trail_turn: int} or empty dict
+	var u = units[uid]
+	var u_form = u.get("formation", [Vector2i(u.col, u.row)])
+	var best := {}
+	var best_d := 999999
+	for eid in units.size():
+		var e = units[eid]
+		if e.player == u.player: continue  # skip friendlies
+		if eid >= formations_timeline.size(): continue
+		var e_ftl: Array = formations_timeline[eid]
+		# Scan all past turn positions (index 0 = deploy, index t = after turn t-1)
+		var max_idx = mini(turn, e_ftl.size() - 1)  # up to but not including current turn
+		for ti in (max_idx + 1):
+			var form: Array = e_ftl[ti]
+			for fh in form:
+				if fh == Vector2i(-1, -1): continue
+				var d = formation_dist_to_hex(u_form, fh)
+				if d < best_d:
+					best_d = d
+					best = {"hex": fh, "enemy_uid": eid, "trail_turn": ti}
+	return best
+
+func _find_trail_uid_at_hex(hex: Vector2i, sim: Dictionary) -> int:
+	# Returns UID of the first unit whose trail (formation hexes across all turns) contains this hex
+	var formations_tl: Array = sim.get("formations_timeline", [])
+	var final_units: Array = sim.get("units", [])
+	for uid in formations_tl.size():
+		var ftl: Array = formations_tl[uid]
+		var u = final_units[uid]
+		var alive_until = u.elim_turn if u.eliminated else TURNS
+		var max_ti = mini(alive_until + 1, ftl.size() - 1)
+		for ti in (max_ti + 1):
+			var form: Array = ftl[ti]
+			if hex in form:
+				return uid
+	return -1
 
 func _roll_combat(attacker: Dictionary, defender: Dictionary, rng: RandomNumberGenerator) -> int:
 	# Returns total wounds dealt to defender (uses ranged profile)
@@ -344,6 +463,7 @@ func _roll_melee(attacker: Dictionary, defender: Dictionary, rng: RandomNumberGe
 
 func _find_ranged_target(uid: int, units: Array, stats: Dictionary) -> int:
 	var u = units[uid]
+	var u_form = u.get("formation", [Vector2i(u.col, u.row)])
 	var range_val = stats.get("range", 0)
 	if range_val <= 0: return -1
 	var targets_furthest = stats.get("targets_furthest", false)
@@ -354,7 +474,8 @@ func _find_ranged_target(uid: int, units: Array, stats: Dictionary) -> int:
 		var e = units[eid]
 		if e.eliminated or e.player == u.player: continue
 		if not e.get("arrived", true): continue  # deep strike not yet arrived
-		var d = hex_dist(u.col, u.row, e.col, e.row)
+		var e_form = e.get("formation", [Vector2i(e.col, e.row)])
+		var d = formation_dist(u_form, e_form)
 		if d > range_val: continue
 		if targets_furthest:
 			if d > best_d:
@@ -368,7 +489,9 @@ func _find_ranged_target(uid: int, units: Array, stats: Dictionary) -> int:
 
 func _pick_archer_target(uid: int, units: Array) -> Vector2i:
 	var u = units[uid]
-	# Find nearest enemy within 8 hex
+	var u_form = u.get("formation", [Vector2i(u.col, u.row)])
+	# Find nearest enemy within archer range
+	var archer_range = ARCHER.range
 	var nearest_eid := -1
 	var nearest_d := 999
 	for eid in units.size():
@@ -376,24 +499,22 @@ func _pick_archer_target(uid: int, units: Array) -> Vector2i:
 		var e = units[eid]
 		if e.eliminated or e.player == u.player: continue
 		if not e.get("arrived", true): continue  # deep strike not yet arrived
-		var d = hex_dist(u.col, u.row, e.col, e.row)
-		if d <= 8 and d < nearest_d:
+		var e_form = e.get("formation", [Vector2i(e.col, e.row)])
+		var d = formation_dist(u_form, e_form)
+		if d <= archer_range and d < nearest_d:
 			nearest_d = d
 			nearest_eid = eid
 	if nearest_eid >= 0:
-		# Move toward enemy but maintain 8 hex distance
+		# Move toward enemy but maintain archer range distance
 		var e = units[nearest_eid]
-		if nearest_d >= 8:
+		if nearest_d >= archer_range:
 			return Vector2i(u.col, u.row)  # already at good range, stay
-		# Need to back up — find hex at distance ~8 from enemy
-		# For simplicity, move toward the enemy's position (they're within 8, archer wants to stay at 8)
-		# Actually archer wants to approach TO 8 if further, or retreat to 8 if closer
 		return Vector2i(e.col, e.row)  # move toward, step loop will stop per archer avoidance logic
 	# No enemy nearby — go to nearest objective
 	var best_obj := Vector2i(u.col, u.row)
 	var best_d2 := 999
 	for obj in OBJECTIVES:
-		var d = hex_dist(u.col, u.row, obj.x, obj.y)
+		var d = formation_dist_to_hex(u_form, obj)
 		if d < best_d2:
 			best_d2 = d
 			best_obj = obj
@@ -417,14 +538,53 @@ func simulate(input_units: Array) -> Dictionary:
 			"elim_turn" : -1,
 			"start_turn": st,
 			"arrived"   : st <= 0,  # deep strike units start as not-arrived
+			"has_retreated": false,
+			"has_disrupted": false,     # DS: already used temporal disruption
+			"disrupted": false,         # was yanked by a DS this sim
+			"disrupted_turn": -1,       # turn the disruption happened
+			"disrupted_from": Vector2i(-1, -1),  # position before yank (for visual break)
 			"deploy_col": src.col,
 			"deploy_row": src.row,
+			"formation" : [],
 		})
 
+	# Compute initial formations (use stored deploy formations if available)
+	# Pre-compute non-deploy-zone blocked sets per player (for fallback path)
+	var _zone_blocked_p1 := {}
+	var _zone_blocked_p2 := {}
+	for c in COLS:
+		for r in ROWS:
+			if is_valid_hex(c, r):
+				var hid = hex_id(c, r)
+				if r < P1_DEPLOY_ROWS_MIN or r > P1_DEPLOY_ROWS_MAX or c < DEPLOY_C_MIN or c > DEPLOY_C_MAX:
+					_zone_blocked_p1[hid] = true
+				if r < P2_DEPLOY_ROWS_MIN or r > P2_DEPLOY_ROWS_MAX or c < DEPLOY_C_MIN or c > DEPLOY_C_MAX:
+					_zone_blocked_p2[hid] = true
+	for uid in units.size():
+		var u = units[uid]
+		if u.start_turn > 0: continue  # deep strike not on map yet
+		# Check if source data has a stored formation
+		var src_form: Array = input_units[uid].get("formation", [])
+		if not src_form.is_empty():
+			u.formation = src_form.duplicate()
+			units[uid] = u
+			continue
+		# Fallback: compute formation with zone + stacking constraints
+		var fp = _compute_footprint(u.unit_type, u.models)
+		var b: Dictionary = (_zone_blocked_p1 if u.player == 1 else _zone_blocked_p2).duplicate()
+		for uid2 in uid:
+			if units[uid2].start_turn > 0: continue
+			for fh in units[uid2].formation:
+				b[hex_id(fh.x, fh.y)] = true
+		u.formation = compute_compact_cluster(Vector2i(u.col, u.row), fp, b)
+		units[uid] = u
+
 	var timelines: Array = []
+	var formations_timeline: Array = []
 	for u in units:
 		var start_pos = Vector2i(-1, -1) if u.start_turn > 0 else Vector2i(u.col, u.row)
 		timelines.append([start_pos])
+		formations_timeline.append([u.formation.duplicate()])
 
 	# Random unit names (separate RNG to avoid changing combat outcomes)
 	var name_rng = RandomNumberGenerator.new()
@@ -492,8 +652,25 @@ func simulate(input_units: Array) -> Dictionary:
 				u.col = u.deploy_col
 				u.row = u.deploy_row
 				u.arrived = true
+				var ds_blocked = _build_blocked_from_units(units, uid, turn)
+				var ds_fp = _compute_footprint(u.unit_type, u.models)
+				u.formation = compute_compact_cluster(Vector2i(u.col, u.row), ds_fp, ds_blocked)
 				units[uid] = u
 				combat_log.append("  %s %s arrives via deep strike at (%d,%d)!" % [_unit_prefix(u.unit_type), unit_names[uid], u.col, u.row])
+
+		# ---- Track cavalry that started in melee range (no charge bonus) ----
+		var cav_no_charge := {}  # uid -> true if cavalry started within COMBAT_RANGE of any enemy
+		for uid in units.size():
+			var u = units[uid]
+			if u.unit_type != "cavalry" or u.eliminated: continue
+			if u.start_turn > 0 and turn < u.start_turn: continue
+			for eid in units.size():
+				var e = units[eid]
+				if e.eliminated or e.player == u.player: continue
+				if e.start_turn > 0 and turn < e.start_turn: continue
+				if formation_dist(u.get("formation", [Vector2i(u.col, u.row)]), e.get("formation", [Vector2i(e.col, e.row)])) <= COMBAT_RANGE:
+					cav_no_charge[uid] = true
+					break
 
 		# ---- Movement ----
 		for uid in units.size():
@@ -501,9 +678,11 @@ func simulate(input_units: Array) -> Dictionary:
 			# Not yet arrived (deep strike)
 			if u.start_turn > 0 and turn < u.start_turn:
 				timelines[uid].append(Vector2i(-1, -1))
+				formations_timeline[uid].append([])
 				continue
 			if u.eliminated:
 				timelines[uid].append(Vector2i(u.col, u.row))
+				formations_timeline[uid].append(u.formation.duplicate())
 				continue
 
 			var ut = u.unit_type
@@ -513,42 +692,37 @@ func simulate(input_units: Array) -> Dictionary:
 			if ut == "artillery":
 				if _find_ranged_target(uid, units, stats) >= 0:
 					timelines[uid].append(Vector2i(u.col, u.row))
+					formations_timeline[uid].append(u.formation.duplicate())
 					continue
 				# Walk straight forward (toward enemy deployment zone)
 				var fwd_row = u.row + (-1 if u.player == 1 else 1)
 				fwd_row = clampi(fwd_row, 0, ROWS - 1)
 				var fwd_goal = Vector2i(u.col, fwd_row)
-				var blocked_art := {}
-				for i in units.size():
-					if i == uid or units[i].eliminated: continue
-					if units[i].start_turn > 0 and turn < units[i].start_turn: continue
-					var oth = units[i]
-					if oth.col == fwd_goal.x and oth.row == fwd_goal.y: continue
-					blocked_art[hex_id(oth.col, oth.row)] = true
+				var blocked_art = _build_blocked_from_units(units, uid, turn, fwd_goal)
 				var art_path = find_path(u.col, u.row, fwd_goal.x, fwd_goal.y, blocked_art)
 				var art_steps = mini(stats.move, art_path.size())
 				for step_i in art_steps:
 					var nxt = art_path[step_i]
 					u.col = nxt.x; u.row = nxt.y
 					units[uid] = u
+				var art_post_blocked = _build_blocked_from_units(units, uid, turn)
+				var art_fp = _compute_footprint(ut, u.models)
+				u.formation = compute_compact_cluster(Vector2i(u.col, u.row), art_fp, art_post_blocked)
+				units[uid] = u
 				timelines[uid].append(Vector2i(u.col, u.row))
+				formations_timeline[uid].append(u.formation.duplicate())
 				continue
 
-			# Archer: avoid melee range, kite at range 8
+			# Archer: avoid melee range, kite at max range
 			elif ut == "archer":
-				# If not in melee, try to maintain range 8 from nearest enemy
+				# If not in melee, try to maintain max range from nearest enemy
 				if _nearest_enemy_in_range(uid, units, COMBAT_RANGE) < 0:
 					var archer_goal = _pick_archer_target(uid, units)
 					if archer_goal == Vector2i(u.col, u.row):
 						timelines[uid].append(archer_goal)
+						formations_timeline[uid].append(u.formation.duplicate())
 						continue
-					var blocked := {}
-					for i in units.size():
-						if i == uid or units[i].eliminated: continue
-						if units[i].start_turn > 0 and turn < units[i].start_turn: continue
-						var oth = units[i]
-						if oth.col == archer_goal.x and oth.row == archer_goal.y: continue
-						blocked[hex_id(oth.col, oth.row)] = true
+					var blocked = _build_blocked_from_units(units, uid, turn, archer_goal)
 					var path = find_path(u.col, u.row, archer_goal.x, archer_goal.y, blocked)
 					var move_steps = mini(stats.move, path.size())
 					for step_i in move_steps:
@@ -558,47 +732,119 @@ func simulate(input_units: Array) -> Dictionary:
 						for oid in units.size():
 							if oid == uid or units[oid].eliminated or units[oid].player == u.player: continue
 							if units[oid].start_turn > 0 and turn < units[oid].start_turn: continue
-							if hex_dist(nxt.x, nxt.y, units[oid].col, units[oid].row) <= COMBAT_RANGE:
+							if formation_dist_to_hex(units[oid].get("formation", [Vector2i(units[oid].col, units[oid].row)]), nxt) <= COMBAT_RANGE:
 								would_engage = true
 								break
 						if would_engage:
 							break
 						u.col = nxt.x; u.row = nxt.y
 						units[uid] = u
+					var arch_post_blocked = _build_blocked_from_units(units, uid, turn)
+					var arch_fp = _compute_footprint(ut, u.models)
+					u.formation = compute_compact_cluster(Vector2i(u.col, u.row), arch_fp, arch_post_blocked)
+					units[uid] = u
 					timelines[uid].append(Vector2i(u.col, u.row))
+					formations_timeline[uid].append(u.formation.duplicate())
 					continue
 				else:
 					# In melee — stay (will fight, then retreat after combat)
 					timelines[uid].append(Vector2i(u.col, u.row))
+					formations_timeline[uid].append(u.formation.duplicate())
+					continue
+
+			# Deep strike temporal disruption: hunt enemy trail hexes
+			if ut == "deep_strike" and not u.has_disrupted:
+				# Already in melee? Stay and fight (disruption opportunity missed)
+				if _nearest_enemy_in_range(uid, units, COMBAT_RANGE) >= 0:
+					timelines[uid].append(Vector2i(u.col, u.row))
+					formations_timeline[uid].append(u.formation.duplicate())
+					continue
+				# Find nearest enemy trail hex
+				var trail_target = _pick_trail_target(uid, units, timelines, formations_timeline, turn)
+				if trail_target.is_empty():
+					# No trail to hunt — fall through to default movement
+					pass
+				else:
+					var t_hex: Vector2i = trail_target.hex
+					var t_eid: int = trail_target.enemy_uid
+					var blocked_ds = _build_blocked_from_units(units, uid, turn, t_hex)
+					var ds_path = find_path(u.col, u.row, t_hex.x, t_hex.y, blocked_ds)
+					var ds_move_steps = mini(stats.move, ds_path.size())
+					for step_i in ds_move_steps:
+						var nxt = ds_path[step_i]
+						u.col = nxt.x; u.row = nxt.y
+						u.formation = [Vector2i(u.col, u.row)]
+						units[uid] = u
+					# Check if within COMBAT_RANGE of trail hex — trigger disruption
+					var u_form_post = u.get("formation", [Vector2i(u.col, u.row)])
+					if formation_dist_to_hex(u_form_post, t_hex) <= COMBAT_RANGE:
+						# --- TEMPORAL DISRUPTION ---
+						var enemy = units[t_eid]
+						if not enemy.eliminated:
+							var old_pos = Vector2i(enemy.col, enemy.row)
+							enemy.col = t_hex.x
+							enemy.row = t_hex.y
+							enemy.disrupted = true
+							enemy.disrupted_turn = turn
+							enemy.disrupted_from = old_pos
+							# Recompute enemy formation at yanked position
+							var e_blocked = _build_blocked_from_units(units, t_eid, turn)
+							var e_fp = _compute_footprint(enemy.unit_type, enemy.models)
+							enemy.formation = compute_compact_cluster(Vector2i(enemy.col, enemy.row), e_fp, e_blocked)
+							units[t_eid] = enemy
+							# Overwrite enemy's timeline entry for this turn if already recorded
+							# Timeline index for turn t is t+1 (index 0 = deploy)
+							if timelines[t_eid].size() > turn + 1:
+								timelines[t_eid][timelines[t_eid].size() - 1] = Vector2i(enemy.col, enemy.row)
+								formations_timeline[t_eid][formations_timeline[t_eid].size() - 1] = enemy.formation.duplicate()
+							combat_log.append("  >> TEMPORAL DISRUPTION: %s %s yanks %s %s from (%d,%d) back to (%d,%d)!" % [
+								_unit_prefix(u.unit_type), unit_names[uid],
+								_unit_prefix(enemy.unit_type), unit_names[t_eid],
+								old_pos.x, old_pos.y, enemy.col, enemy.row])
+						else:
+							combat_log.append("  >> %s %s reaches trail of eliminated %s %s — disruption wasted!" % [
+								_unit_prefix(u.unit_type), unit_names[uid],
+								_unit_prefix(units[t_eid].unit_type), unit_names[t_eid]])
+						u.has_disrupted = true
+						units[uid] = u
+					# Recompute DS formation
+					var ds_post_blocked = _build_blocked_from_units(units, uid, turn)
+					var ds_fp = _compute_footprint(ut, u.models)
+					u.formation = compute_compact_cluster(Vector2i(u.col, u.row), ds_fp, ds_post_blocked)
+					units[uid] = u
+					timelines[uid].append(Vector2i(u.col, u.row))
+					formations_timeline[uid].append(u.formation.duplicate())
 					continue
 
 			# Default: infantry, cavalry, deep_strike, artillery fallback
 			if _nearest_enemy_in_range(uid, units, COMBAT_RANGE) >= 0:
 				timelines[uid].append(Vector2i(u.col, u.row))
+				formations_timeline[uid].append(u.formation.duplicate())
 				continue
 
 			var goal = _pick_target(uid, units)
 			if goal == Vector2i(u.col, u.row):
 				timelines[uid].append(goal)
+				formations_timeline[uid].append(u.formation.duplicate())
 				continue
 
-			var blocked := {}
-			for i in units.size():
-				if i == uid or units[i].eliminated: continue
-				if units[i].start_turn > 0 and turn < units[i].start_turn: continue
-				var other = units[i]
-				if other.col == goal.x and other.row == goal.y: continue
-				blocked[hex_id(other.col, other.row)] = true
+			var blocked = _build_blocked_from_units(units, uid, turn, goal)
 
 			var path = find_path(u.col, u.row, goal.x, goal.y, blocked)
 			var move_steps = mini(stats.move, path.size())
 			for step_i in move_steps:
 				var nxt = path[step_i]
 				u.col = nxt.x; u.row = nxt.y
+				u.formation = [Vector2i(u.col, u.row)]  # temp single-hex during movement
 				units[uid] = u
 				if _nearest_enemy_in_range(uid, units, COMBAT_RANGE) >= 0:
 					break
+			var post_blocked = _build_blocked_from_units(units, uid, turn)
+			var fp = _compute_footprint(ut, u.models)
+			u.formation = compute_compact_cluster(Vector2i(u.col, u.row), fp, post_blocked)
+			units[uid] = u
 			timelines[uid].append(Vector2i(u.col, u.row))
+			formations_timeline[uid].append(u.formation.duplicate())
 
 		# Log movement
 		for uid2 in units.size():
@@ -635,8 +881,9 @@ func simulate(input_units: Array) -> Dictionary:
 				var nu = units[ni]
 				if nu.eliminated: continue
 				if nu.start_turn > 0 and turn < nu.start_turn: continue
-				if hex_dist(nu.col, nu.row, u.col, u.row) <= COMBAT_RANGE or \
-				   hex_dist(nu.col, nu.row, t.col, t.row) <= COMBAT_RANGE:
+				var nu_form = nu.get("formation", [Vector2i(nu.col, nu.row)])
+				if formation_dist(nu_form, u.get("formation", [Vector2i(u.col, u.row)])) <= COMBAT_RANGE or \
+				   formation_dist(nu_form, t.get("formation", [Vector2i(t.col, t.row)])) <= COMBAT_RANGE:
 					rseed = rseed ^ (nu.col * 31 + nu.row * 97 + nu.player * 7919 + ni * 1009)
 			rng.seed = rseed
 			var dmg = _roll_combat(u, t, rng)
@@ -685,13 +932,27 @@ func simulate(input_units: Array) -> Dictionary:
 				var nu = units[ni]
 				if nu.eliminated: continue
 				if nu.start_turn > 0 and turn < nu.start_turn: continue
-				if hex_dist(nu.col, nu.row, u.col, u.row) <= COMBAT_RANGE or \
-				   hex_dist(nu.col, nu.row, e.col, e.row) <= COMBAT_RANGE:
+				var nu_form = nu.get("formation", [Vector2i(nu.col, nu.row)])
+				if formation_dist(nu_form, u.get("formation", [Vector2i(u.col, u.row)])) <= COMBAT_RANGE or \
+				   formation_dist(nu_form, e.get("formation", [Vector2i(e.col, e.row)])) <= COMBAT_RANGE:
 					fight_seed = fight_seed ^ (nu.col * 31 + nu.row * 97 + nu.player * 7919 + ni * 1009)
 			fight_rng.seed = fight_seed
 			# Use melee profile for artillery/archer
 			var dmg_to_e = _roll_melee(u, e, fight_rng)
 			var dmg_to_u = _roll_melee(e, u, fight_rng)
+			# Archer first melee: half damage both ways
+			if u.unit_type == "archer" and not u.has_retreated:
+				dmg_to_e = dmg_to_e / 2
+				dmg_to_u = dmg_to_u / 2
+			if e.unit_type == "archer" and not e.has_retreated:
+				dmg_to_e = dmg_to_e / 2
+				dmg_to_u = dmg_to_u / 2
+			# Cavalry no charge: halve damage output (dmg 2->1 per hit)
+			# Also applies to disrupted cavalry (yanked = lost momentum)
+			if cav_no_charge.has(uid) or (u.unit_type == "cavalry" and u.disrupted and u.disrupted_turn == turn):
+				dmg_to_e = dmg_to_e / 2
+			if cav_no_charge.has(eid) or (e.unit_type == "cavalry" and e.disrupted and e.disrupted_turn == turn):
+				dmg_to_u = dmg_to_u / 2
 			unit_dmg[uid] += dmg_to_e
 			unit_dmg[eid] += dmg_to_u
 			if not unit_dmg_to[uid].has(eid): unit_dmg_to[uid][eid] = 0
@@ -730,15 +991,11 @@ func simulate(input_units: Array) -> Dictionary:
 			if u.unit_type != "archer": continue
 			if u.eliminated: continue
 			if not melee_participants.has(uid): continue
-			# Retreat: move 5 hex away from all units and objectives
+			# Retreat: move away from all units and objectives
 			var best_hex := Vector2i(u.col, u.row)
 			var best_score := -1.0
-			var retreat_blocked := {}
-			for i in units.size():
-				if i == uid or units[i].eliminated: continue
-				if units[i].start_turn > 0 and turn < units[i].start_turn: continue
-				retreat_blocked[hex_id(units[i].col, units[i].row)] = true
-			# BFS to find reachable hexes within 5 steps
+			var retreat_blocked = _build_blocked_from_units(units, uid, turn)
+			# BFS to find reachable hexes within retreat_move steps
 			var visited := { hex_id(u.col, u.row): 0 }
 			var frontier := [Vector2i(u.col, u.row)]
 			var retreat_stats = _get_stats("archer")
@@ -763,7 +1020,7 @@ func simulate(input_units: Array) -> Dictionary:
 				for i in units.size():
 					if i == uid or units[i].eliminated: continue
 					if units[i].start_turn > 0 and turn < units[i].start_turn: continue
-					var d = hex_dist(hx.x, hx.y, units[i].col, units[i].row)
+					var d = formation_dist_to_hex(units[i].get("formation", [Vector2i(units[i].col, units[i].row)]), hx)
 					if d < min_dist: min_dist = d
 				for obj in OBJECTIVES:
 					var d = hex_dist(hx.x, hx.y, obj.x, obj.y)
@@ -773,38 +1030,47 @@ func simulate(input_units: Array) -> Dictionary:
 					best_hex = hx
 			if best_hex != Vector2i(u.col, u.row):
 				u.col = best_hex.x; u.row = best_hex.y
+				# Recompute formation at retreat position
+				var ret_blocked = _build_blocked_from_units(units, uid, turn)
+				var ret_fp = _compute_footprint(u.unit_type, u.models)
+				u.formation = compute_compact_cluster(Vector2i(u.col, u.row), ret_fp, ret_blocked)
 				units[uid] = u
-				# Update the last timeline entry to reflect retreat position
+				# Update the last timeline/formation entry to reflect retreat position
 				timelines[uid][timelines[uid].size() - 1] = best_hex
+				formations_timeline[uid][formations_timeline[uid].size() - 1] = u.formation.duplicate()
 				combat_log.append("  W %s retreats to (%d,%d)" % [unit_names[uid], best_hex.x, best_hex.y])
+			if not u.has_retreated:
+				u.has_retreated = true
+				units[uid] = u
 
-		# ---- Update persistent objective control (with weighted capture) ----
+		# ---- Update persistent objective control (OC-based capture) ----
 		for oi in OBJECTIVES.size():
 			var obj = OBJECTIVES[oi]
 			var old_ctrl = obj_control[oi]
-			var p1_weight := 0.0; var p2_weight := 0.0
+			var p1_oc := 0; var p2_oc := 0
 			for u in units:
 				if u.eliminated: continue
 				if u.start_turn > 0 and turn < u.start_turn: continue
 				var ust = _get_stats(u.unit_type)
-				if not ust.get("can_capture", true): continue
-				if hex_dist(u.col, u.row, obj.x, obj.y) <= 2:
-					var w = ust.get("obj_weight", 1.0) * u.models
-					if u.player == 1: p1_weight += w
-					else:              p2_weight += w
-			if p1_weight > p2_weight and p1_weight > 0:
+				var u_form = u.get("formation", [Vector2i(u.col, u.row)])
+				if formation_dist_to_hex(u_form, obj) <= OC_RADIUS:
+					var oc_total = ust.get("oc", 1) * u.models
+					if u.player == 1: p1_oc += oc_total
+					else:              p2_oc += oc_total
+			if p1_oc > p2_oc and p1_oc > 0:
 				obj_control[oi] = 1
-			elif p2_weight > p1_weight and p2_weight > 0:
+			elif p2_oc > p1_oc and p2_oc > 0:
 				obj_control[oi] = 2
 			# Track unit objective contributions
 			for uid2 in units.size():
 				var u2 = units[uid2]
 				if u2.eliminated: continue
 				if u2.start_turn > 0 and turn < u2.start_turn: continue
-				if hex_dist(u2.col, u2.row, obj.x, obj.y) > 2: continue
+				var u2_form = u2.get("formation", [Vector2i(u2.col, u2.row)])
+				if formation_dist_to_hex(u2_form, obj) > OC_RADIUS: continue
 				if obj_control[oi] == u2.player and old_ctrl != u2.player:
 					unit_obj[uid2][oi] = "won"
-				elif p1_weight > 0 and p2_weight > 0 and unit_obj[uid2][oi] != "won":
+				elif p1_oc > 0 and p2_oc > 0 and unit_obj[uid2][oi] != "won":
 					unit_obj[uid2][oi] = "yes"
 
 		# Tally VP: 5 per objective held this turn
@@ -828,14 +1094,15 @@ func simulate(input_units: Array) -> Dictionary:
 		var snap: Array = []
 		for uid2 in units.size():
 			var u2 = units[uid2]
-			snap.append({ "models": u2.models, "eliminated": u2.eliminated, "col": u2.col, "row": u2.row })
+			snap.append({ "models": u2.models, "eliminated": u2.eliminated, "col": u2.col, "row": u2.row, "formation": u2.formation.duplicate() })
 		unit_snapshots.append(snap)
 
-	return { "timelines": timelines, "units": units, "combat": combat_events, "obj_control": obj_control, "vp_per_turn": vp_per_turn, "unit_names": unit_names, "unit_obj": unit_obj, "unit_kills": unit_kills, "unit_dmg": unit_dmg, "unit_dmg_to": unit_dmg_to, "combat_log": combat_log, "obj_ctrl_history": obj_ctrl_history, "unit_snapshots": unit_snapshots }
+	return { "timelines": timelines, "formations_timeline": formations_timeline, "units": units, "combat": combat_events, "obj_control": obj_control, "vp_per_turn": vp_per_turn, "unit_names": unit_names, "unit_obj": unit_obj, "unit_kills": unit_kills, "unit_dmg": unit_dmg, "unit_dmg_to": unit_dmg_to, "combat_log": combat_log, "obj_ctrl_history": obj_ctrl_history, "unit_snapshots": unit_snapshots }
 
 func _apply_wounds(uid: int, units: Array, wounds: int, turn: int):
 	var u     = units[uid]
 	var stats = _get_stats(u.unit_type)
+	var old_models = u.models
 	u.wounds += wounds
 	while u.wounds >= stats.hp and u.models > 0:
 		u.wounds -= stats.hp
@@ -843,7 +1110,36 @@ func _apply_wounds(uid: int, units: Array, wounds: int, turn: int):
 	if u.models <= 0:
 		u.eliminated = true
 		u.elim_turn  = turn
+		u.formation = []
+	elif u.models < old_models:
+		var new_fp = _compute_footprint(u.unit_type, u.models)
+		if new_fp < u.get("formation", []).size():
+			u.formation = _shrink_formation(u.formation, new_fp, uid, units)
 	units[uid] = u
+
+func _shrink_formation(formation: Array, new_size: int, uid: int, units: Array) -> Array:
+	if formation.size() <= new_size:
+		return formation
+	# Find nearest enemy to determine which hexes to release
+	var u = units[uid]
+	var enemy_center := Vector2i(u.col, u.row)
+	var best_d := 999999
+	for eid in units.size():
+		if eid == uid: continue
+		var e = units[eid]
+		if e.eliminated or e.player == u.player: continue
+		if not e.get("arrived", true): continue
+		var e_form = e.get("formation", [Vector2i(e.col, e.row)])
+		var d = formation_dist(formation, e_form)
+		if d < best_d:
+			best_d = d
+			enemy_center = Vector2i(e.col, e.row)
+	# Keep hexes FURTHEST from enemy (release closest = front-line shrinks)
+	var sorted_form = formation.duplicate()
+	sorted_form.sort_custom(func(a, b):
+		return hex_dist(a.x, a.y, enemy_center.x, enemy_center.y) > hex_dist(b.x, b.y, enemy_center.x, enemy_center.y)
+	)
+	return sorted_form.slice(0, new_size)
 
 # ============================================================================
 # GAME STATE
@@ -876,15 +1172,21 @@ var shift_summary_timer := 0.0
 var shift_summary_diff := {}  # snapshot of preview_diff at placement time
 var shift_old_sim := {}       # snapshot of confirmed_sim before placement
 var hover_hex     := Vector2i(-1, -1)
+var hover_trail_uid := -1  # UID of unit whose trail is under cursor (-1 = none)
+var _mouse_pos := Vector2.ZERO  # last known mouse position for tooltip placement
 var deploy_heatmap := {}  # hex_id -> vp delta for active player
 var _heatmap_queue: Array = []  # hex coords still to compute
 var _heatmap_base_vp := 0      # cached baseline VP for incremental compute
 var _heatmap_base_units: Array = []  # cached unit list for incremental compute
 var _heatmap_min := 0  # worst delta seen so far (for relative scaling)
 var _heatmap_max := 0  # best delta seen so far
+var _heatmap_enabled := false  # toggled by H key during deploy
+var _deploy_blocked_cache: Dictionary = {}  # zone + formation blocked hexes
+var _log_visible := false  # toggled by L key
 
 var anim_turn  := 0
 var anim_frac  := 0.0   # 0.0–1.0 progress within the current turn (for smooth interpolation)
+var _diff_flash_time := 0.0  # timer for CHANGED mode old/new crossfade (2s cycle)
 var _obj_control: Array = []  # per-objective: 0=neutral, 1=P1, 2=P2
 
 # Combat log
@@ -948,7 +1250,7 @@ func _ready():
 	_icon_survive = _load_png_as_texture(icon_dir + "Icon_07.png")
 	_icon_death = _load_png_as_texture(icon_dir + "Icon_09.png")
 	var vp = get_viewport_rect().size
-	cam_zoom = 1.0
+	cam_zoom = 0.5
 	# Center the map in the viewport (offset layout)
 	var mid_col = COLS / 2
 	var mid_row = ROWS / 2
@@ -1027,9 +1329,22 @@ func _input(event: InputEvent):
 			view_mode = ViewMode.FINAL
 			queue_redraw()
 			return
+		if event.keycode == KEY_H:
+			_heatmap_enabled = not _heatmap_enabled
+			if _heatmap_enabled:
+				_compute_deploy_heatmap()
+			else:
+				deploy_heatmap = {}
+				_heatmap_queue = []
+			queue_redraw()
+			return
+		if event.keycode == KEY_L:
+			_log_visible = not _log_visible
+			queue_redraw()
+			return
 
 	# Log panel scroll (left side, 340px wide)
-	if event is InputEventMouseButton and event.pressed and event.position.x < 420:
+	if _log_visible and event is InputEventMouseButton and event.pressed and event.position.x < 420:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			log_scroll = maxi(0, log_scroll - 3)
 			queue_redraw()
@@ -1058,6 +1373,7 @@ func _input(event: InputEvent):
 			else:
 				drag_active = false
 	if event is InputEventMouseMotion:
+		_mouse_pos = event.position
 		if drag_active:
 			cam_offset = cam_start + (event.position - drag_start)
 			queue_redraw()
@@ -1072,6 +1388,12 @@ func _input(event: InputEvent):
 		var new_hover = h if is_valid_hex(h.x, h.y) else Vector2i(-1, -1)
 		if new_hover != hover_hex:
 			hover_hex = new_hover
+			# Trail hover detection: find unit whose trail is under cursor
+			hover_trail_uid = -1
+			if new_hover != Vector2i(-1, -1) and not selecting_unit and not ds_selecting_turn and not showing_shift_summary and not show_summary:
+				var active_sim = preview_sim if not preview_sim.is_empty() else confirmed_sim
+				if not active_sim.is_empty():
+					hover_trail_uid = _find_trail_uid_at_hex(new_hover, active_sim)
 			if not selecting_unit and not ds_selecting_turn and not showing_shift_summary and _is_deploy_hex(new_hover):
 				_recalc_preview_sim()
 				anim_turn  = 0
@@ -1152,24 +1474,36 @@ func _zoom(factor: float, pivot: Vector2):
 func _is_deploy_hex(h: Vector2i) -> bool:
 	if phase != Phase.DEPLOY or not is_valid_hex(h.x, h.y):
 		return false
-	# Deep strike: can deploy anywhere on map within legal hexes
+	# Basic zone check first
+	var in_zone := false
 	if deploy_unit_type == "deep_strike" and ds_arrival_turn > 0:
-		return ds_legal_hexes.has(hex_id(h.x, h.y))
-	if active_player == 1:
-		return h.y >= P1_DEPLOY_ROWS_MIN and h.y <= P1_DEPLOY_ROWS_MAX and h.x >= DEPLOY_C_MIN and h.x <= DEPLOY_C_MAX
+		in_zone = ds_legal_hexes.has(hex_id(h.x, h.y))
+	elif active_player == 1:
+		in_zone = h.y >= P1_DEPLOY_ROWS_MIN and h.y <= P1_DEPLOY_ROWS_MAX and h.x >= DEPLOY_C_MIN and h.x <= DEPLOY_C_MAX
 	else:
-		return h.y >= P2_DEPLOY_ROWS_MIN and h.y <= P2_DEPLOY_ROWS_MAX and h.x >= DEPLOY_C_MIN and h.x <= DEPLOY_C_MAX
+		in_zone = h.y >= P2_DEPLOY_ROWS_MIN and h.y <= P2_DEPLOY_ROWS_MAX and h.x >= DEPLOY_C_MIN and h.x <= DEPLOY_C_MAX
+	if not in_zone:
+		return false
+	# Check anchor not blocked by existing formations
+	if _deploy_blocked_cache.has(hex_id(h.x, h.y)):
+		return false
+	# Check that the full formation cluster fits
+	var stats = _get_stats(deploy_unit_type)
+	var fp = _compute_footprint(deploy_unit_type, stats.models)
+	var cluster = compute_compact_cluster(h, fp, _deploy_blocked_cache)
+	return cluster.size() == fp
 
 func _handle_deploy_click(h: Vector2i):
 	if phase != Phase.DEPLOY or selecting_unit or ds_selecting_turn: return
 	if not _is_deploy_hex(h): return
 
-	# Check no stacking on existing units
-	var all_placed = placed_p1 + placed_p2
-	for p in all_placed:
-		if p.col == h.x and p.row == h.y: return
+	# Compute the deploy formation (zone + stacking validated by _is_deploy_hex)
+	var stats = _get_stats(deploy_unit_type)
+	var fp = _compute_footprint(deploy_unit_type, stats.models)
+	var formation = compute_compact_cluster(h, fp, _deploy_blocked_cache)
+	if formation.size() < fp: return  # safety: can't fit
 
-	var unit_data = { "player": active_player, "col": h.x, "row": h.y, "unit_type": deploy_unit_type }
+	var unit_data = { "player": active_player, "col": h.x, "row": h.y, "unit_type": deploy_unit_type, "formation": formation }
 	if deploy_unit_type == "deep_strike":
 		unit_data["start_turn"] = ds_arrival_turn
 
@@ -1236,7 +1570,9 @@ func _handle_unit_select_click(pos: Vector2):
 			if deploy_unit_type == "deep_strike":
 				ds_selecting_turn = true
 			else:
-				_compute_deploy_heatmap()
+				_recompute_deploy_cache()
+				if _heatmap_enabled:
+					_compute_deploy_heatmap()
 			queue_redraw()
 			return
 
@@ -1256,7 +1592,9 @@ func _handle_ds_turn_click(pos: Vector2):
 			ds_arrival_turn = i + 1  # T2 button (i=0) → 0-based turn 1 = display Turn 2
 			ds_selecting_turn = false
 			ds_legal_hexes = _compute_ds_legal_hexes(ds_arrival_turn)
-			_compute_deploy_heatmap()
+			_recompute_deploy_cache()
+			if _heatmap_enabled:
+				_compute_deploy_heatmap()
 			queue_redraw()
 			return
 
@@ -1284,7 +1622,9 @@ func _compute_ds_legal_hexes(arrival_turn: int) -> Dictionary:
 				# Only check enemy units
 				var u_player = conf_units[uid].player if uid < conf_units.size() else 0
 				if u_player == active_player: continue
-				if hex_dist(c, r, su.col, su.row) < 9:
+				# Check distance from candidate hex to enemy formation
+				var su_form: Array = su.get("formation", [Vector2i(su.col, su.row)])
+				if formation_dist_to_hex(su_form, Vector2i(c, r)) < CAVALRY_AGGRO + 1:
 					ok = false
 					break
 			if ok:
@@ -1321,14 +1661,15 @@ func _recalc_preview_sim():
 		preview_sim = {}
 		preview_diff = {}
 		return
-	# Check not stacking on existing unit
-	var all_placed = placed_p1 + placed_p2
-	for p in all_placed:
-		if p.col == hover_hex.x and p.row == hover_hex.y:
-			preview_sim = {}
-			preview_diff = {}
-			return
-	var preview_unit = { "player": active_player, "col": hover_hex.x, "row": hover_hex.y, "unit_type": deploy_unit_type }
+	# Compute preview formation using blocked cache (zone + stacking)
+	var stats = _get_stats(deploy_unit_type)
+	var fp = _compute_footprint(deploy_unit_type, stats.models)
+	var formation = compute_compact_cluster(hover_hex, fp, _deploy_blocked_cache)
+	if formation.size() < fp:
+		preview_sim = {}
+		preview_diff = {}
+		return
+	var preview_unit = { "player": active_player, "col": hover_hex.x, "row": hover_hex.y, "unit_type": deploy_unit_type, "formation": formation }
 	if deploy_unit_type == "deep_strike" and ds_arrival_turn > 0:
 		preview_unit["start_turn"] = ds_arrival_turn
 	var all_units: Array = placed_p1.duplicate() + placed_p2.duplicate()
@@ -1336,12 +1677,45 @@ func _recalc_preview_sim():
 	preview_sim = simulate(all_units)
 	preview_diff = _compute_sim_diff()
 
+func _recompute_deploy_cache():
+	_deploy_blocked_cache = {}
+	var all_placed = placed_p1 + placed_p2
+	# Add all stored formation hexes from placed units
+	for p in all_placed:
+		var form: Array = p.get("formation", [])
+		if form.is_empty() and p.get("start_turn", 0) == 0:
+			# Fallback: compute formation if not stored (shouldn't happen normally)
+			var stats = _get_stats(p.unit_type)
+			var fp = _compute_footprint(p.unit_type, stats.models)
+			var b := {}
+			for p2 in all_placed:
+				if p2 == p: break
+				for fh in p2.get("formation", []):
+					b[hex_id(fh.x, fh.y)] = true
+			form = compute_compact_cluster(Vector2i(p.col, p.row), fp, b)
+		for fh in form:
+			_deploy_blocked_cache[hex_id(fh.x, fh.y)] = true
+	# Block non-deploy-zone hexes for current player (regular units)
+	if deploy_unit_type != "deep_strike" or ds_arrival_turn <= 0:
+		var r_min = P1_DEPLOY_ROWS_MIN if active_player == 1 else P2_DEPLOY_ROWS_MIN
+		var r_max = P1_DEPLOY_ROWS_MAX if active_player == 1 else P2_DEPLOY_ROWS_MAX
+		for c in COLS:
+			for r in ROWS:
+				if is_valid_hex(c, r) and (r < r_min or r > r_max or c < DEPLOY_C_MIN or c > DEPLOY_C_MAX):
+					_deploy_blocked_cache[hex_id(c, r)] = true
+	else:
+		# Deep strike: block hexes not in ds_legal_hexes
+		for c in COLS:
+			for r in ROWS:
+				if is_valid_hex(c, r) and not ds_legal_hexes.has(hex_id(c, r)):
+					_deploy_blocked_cache[hex_id(c, r)] = true
+
 func _compute_deploy_heatmap():
 	deploy_heatmap = {}
 	_heatmap_queue = []
 	_heatmap_min = 0
 	_heatmap_max = 0
-	if phase != Phase.DEPLOY or selecting_unit or ds_selecting_turn:
+	if phase != Phase.DEPLOY or selecting_unit or ds_selecting_turn or not _heatmap_enabled:
 		return
 	# Cache baseline VP
 	_heatmap_base_vp = 0
@@ -1350,20 +1724,25 @@ func _compute_deploy_heatmap():
 		var final_vp = conf_vpt[conf_vpt.size() - 1]
 		_heatmap_base_vp = final_vp[0] if active_player == 1 else final_vp[1]
 	_heatmap_base_units = placed_p1.duplicate() + placed_p2.duplicate()
-	# Build queue of hex coordinates to process
-	var occupied := {}
-	for p in _heatmap_base_units:
-		occupied[hex_id(p.col, p.row)] = true
+	# Build queue of hex coordinates to process (filtered by formation validity)
+	var stats = _get_stats(deploy_unit_type)
+	var fp = _compute_footprint(deploy_unit_type, stats.models)
 	if deploy_unit_type == "deep_strike" and ds_arrival_turn > 0:
 		for hid in ds_legal_hexes:
-			if not occupied.has(hid):
-				_heatmap_queue.append(Vector2i(hid / 1000, hid % 1000))
+			if _deploy_blocked_cache.has(hid): continue
+			var coord = Vector2i(hid / 1000, hid % 1000)
+			var cluster = compute_compact_cluster(coord, fp, _deploy_blocked_cache)
+			if cluster.size() == fp:
+				_heatmap_queue.append(coord)
 	else:
 		var r_min = P1_DEPLOY_ROWS_MIN if active_player == 1 else P2_DEPLOY_ROWS_MIN
 		var r_max = P1_DEPLOY_ROWS_MAX if active_player == 1 else P2_DEPLOY_ROWS_MAX
 		for r in range(r_min, r_max + 1):
 			for c in range(DEPLOY_C_MIN, DEPLOY_C_MAX + 1):
-				if not occupied.has(hex_id(c, r)):
+				var hid = hex_id(c, r)
+				if _deploy_blocked_cache.has(hid): continue
+				var cluster = compute_compact_cluster(Vector2i(c, r), fp, _deploy_blocked_cache)
+				if cluster.size() == fp:
 					_heatmap_queue.append(Vector2i(c, r))
 
 func _process_heatmap_batch(count: int):
@@ -1456,22 +1835,22 @@ func _compute_sim_diff() -> Dictionary:
 func _unit_obj_hold_turns(sim: Dictionary, uid: int) -> Array:
 	# Returns [turns_obj1, turns_obj2, turns_obj3] — turns this unit was within
 	# capture range (2 hexes) of each objective while their team controlled it.
-	var tls: Array = sim.get("timelines", [])
+	var ftls: Array = sim.get("formations_timeline", [])
 	var obj_hist: Array = sim.get("obj_ctrl_history", [])
 	var sim_units: Array = sim.get("units", [])
-	if uid >= tls.size() or uid >= sim_units.size():
+	if uid >= ftls.size() or uid >= sim_units.size():
 		return [0, 0, 0]
 	var u = sim_units[uid]
-	var trail: Array = tls[uid]
+	var ftrail: Array = ftls[uid]
 	var result = [0, 0, 0]
 	for t in obj_hist.size():
-		var pos_idx = t + 1   # trail[0] is deploy position, trail[t+1] is after turn t
-		if pos_idx >= trail.size(): break
-		var pos = trail[pos_idx]
-		if pos == Vector2i(-1, -1): continue
+		var pos_idx = t + 1   # ftrail[0] is deploy formation, ftrail[t+1] is after turn t
+		if pos_idx >= ftrail.size(): break
+		var form: Array = ftrail[pos_idx]
+		if form.is_empty(): continue
 		for oi in OBJECTIVES.size():
 			if obj_hist[t][oi] == u.player:
-				if hex_dist(pos.x, pos.y, OBJECTIVES[oi].x, OBJECTIVES[oi].y) <= 2:
+				if formation_dist_to_hex(form, OBJECTIVES[oi]) <= OC_RADIUS:
 					result[oi] += 1
 	return result
 
@@ -1842,6 +2221,7 @@ func _process(delta: float):
 	if anim_frac >= 1.0:
 		anim_frac -= 1.0
 		anim_turn = (anim_turn + 1) % (TURNS + 1)
+	_diff_flash_time += delta
 	if showing_shift_summary:
 		shift_summary_timer += delta
 	# Sync terrain tilemap with custom camera
@@ -1873,9 +2253,41 @@ func _draw():
 		_draw_hud()
 		_draw_scoreboard(draw_sim)
 		_draw_unit_fate(draw_sim)
-		_draw_combat_log()
+		if _log_visible: _draw_combat_log()
 		if use_preview:
 			_draw_preview_narrative(draw_sim)
+		if hover_trail_uid >= 0 and not selecting_unit and not ds_selecting_turn:
+			_draw_trail_tooltip(draw_sim)
+		# "Change view" cursor tooltip in FINAL mode
+		if not preview_sim.is_empty() and not selecting_unit and not ds_selecting_turn:
+			var vp_f = get_viewport_rect().size
+			var vhf_font = ThemeDB.fallback_font
+			var vhf_fs = 14
+			var vhf_pad = 6
+			var vhf_prefix = "Change view:  "
+			var vhf_nums = "1  2  3  4"
+			var vhf_tw = vhf_font.get_string_size(vhf_prefix + vhf_nums, HORIZONTAL_ALIGNMENT_LEFT, -1, vhf_fs).x + vhf_pad * 2
+			var vhf_th = 18 + vhf_pad * 2
+			var vhf_x = _mouse_pos.x + 20
+			var vhf_y = _mouse_pos.y - vhf_th - 10
+			if vhf_x + vhf_tw > vp_f.x - 10:
+				vhf_x = _mouse_pos.x - vhf_tw - 10
+			if vhf_y < 10:
+				vhf_y = _mouse_pos.y + 30
+			draw_rect(Rect2(vhf_x, vhf_y, vhf_tw, vhf_th), Color(0.05, 0.05, 0.1, 0.8))
+			draw_rect(Rect2(vhf_x, vhf_y, vhf_tw, vhf_th), Color(0.5, 0.5, 0.5, 0.4), false, 1.5)
+			var vhf_cx = vhf_x + vhf_pad
+			var vhf_cy = vhf_y + vhf_pad + 12
+			draw_string(vhf_font, Vector2(vhf_cx, vhf_cy), vhf_prefix,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, vhf_fs, Color(0.6, 0.6, 0.6))
+			vhf_cx += vhf_font.get_string_size(vhf_prefix, HORIZONTAL_ALIGNMENT_LEFT, -1, vhf_fs).x
+			for vi in 4:
+				var vnum = str(vi + 1)
+				var vnum_col = Color(1.0, 0.9, 0.3) if vi == view_mode else Color(0.5, 0.5, 0.5)
+				draw_string(vhf_font, Vector2(vhf_cx, vhf_cy), vnum,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, vhf_fs, vnum_col)
+				var vnum_spacing = vnum + ("  " if vi < 3 else "")
+				vhf_cx += vhf_font.get_string_size(vnum_spacing, HORIZONTAL_ALIGNMENT_LEFT, -1, vhf_fs).x
 		# Overlay popups
 		if selecting_unit:
 			_draw_unit_select()
@@ -1890,7 +2302,9 @@ func _draw():
 		for c in COLS:
 			_draw_tile(c, r)
 
-
+	# Dark fog overlay for CHANGED mode — dims tiles so only changes pop
+	if phase == Phase.DEPLOY and view_mode == ViewMode.CHANGED and not preview_sim.is_empty():
+		draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.70))
 
 	if not draw_sim.is_empty():
 		_draw_sim(draw_sim, use_preview)
@@ -1901,6 +2315,40 @@ func _draw():
 	_draw_combat_log()
 	if use_preview:
 		_draw_preview_narrative(draw_sim)
+
+	# Trail hover tooltip (works in both DEPLOY and DONE phases)
+	if hover_trail_uid >= 0 and not selecting_unit and not ds_selecting_turn and not showing_shift_summary and not show_summary:
+		_draw_trail_tooltip(draw_sim)
+
+	# "Change view" cursor tooltip during deploy with active preview
+	if phase == Phase.DEPLOY and not preview_sim.is_empty() and not selecting_unit and not ds_selecting_turn and not showing_shift_summary and not show_summary:
+		var vh_font = ThemeDB.fallback_font
+		var vh_fs = 14
+		var vh_pad = 6
+		var vh_prefix = "Change view:  "
+		var vh_nums = "1  2  3  4"
+		var vh_tw = vh_font.get_string_size(vh_prefix + vh_nums, HORIZONTAL_ALIGNMENT_LEFT, -1, vh_fs).x + vh_pad * 2
+		var vh_th = 18 + vh_pad * 2
+		var vh_x = _mouse_pos.x + 20
+		var vh_y = _mouse_pos.y - vh_th - 10
+		if vh_x + vh_tw > vp.x - 10:
+			vh_x = _mouse_pos.x - vh_tw - 10
+		if vh_y < 10:
+			vh_y = _mouse_pos.y + 30
+		draw_rect(Rect2(vh_x, vh_y, vh_tw, vh_th), Color(0.05, 0.05, 0.1, 0.8))
+		draw_rect(Rect2(vh_x, vh_y, vh_tw, vh_th), Color(0.5, 0.5, 0.5, 0.4), false, 1.5)
+		var vh_cx = vh_x + vh_pad
+		var vh_cy = vh_y + vh_pad + 12
+		draw_string(vh_font, Vector2(vh_cx, vh_cy), vh_prefix,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, vh_fs, Color(0.6, 0.6, 0.6))
+		vh_cx += vh_font.get_string_size(vh_prefix, HORIZONTAL_ALIGNMENT_LEFT, -1, vh_fs).x
+		for vi in 4:
+			var vnum = str(vi + 1)
+			var vnum_col = Color(1.0, 0.9, 0.3) if vi == view_mode else Color(0.5, 0.5, 0.5)
+			draw_string(vh_font, Vector2(vh_cx, vh_cy), vnum,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, vh_fs, vnum_col)
+			var vnum_spacing = vnum + ("  " if vi < 3 else "")
+			vh_cx += vh_font.get_string_size(vnum_spacing, HORIZONTAL_ALIGNMENT_LEFT, -1, vh_fs).x
 
 	# Shift summary bar at bottom
 	if showing_shift_summary and not shift_summary_lines.is_empty():
@@ -1950,7 +2398,7 @@ func _draw_tile(col: int, row: int):
 		var ctrl_color = C_BANNER
 		if ctrl == 1: ctrl_color = C_P1
 		elif ctrl == 2: ctrl_color = C_P2
-		if hex_dist(col, row, obj.x, obj.y) <= 2:
+		if hex_dist(col, row, obj.x, obj.y) <= OC_RADIUS:
 			tint = tint.lerp(Color(ctrl_color.r, ctrl_color.g, ctrl_color.b, 0.25), 0.5)
 		if col == obj.x and row == obj.y:
 			tint = Color(ctrl_color.r, ctrl_color.g, ctrl_color.b, 0.45)
@@ -1987,7 +2435,7 @@ func _draw_tile(col: int, row: int):
 	var obj_flips: Array = preview_diff.get("obj_flips", [])
 	for i in OBJECTIVES.size():
 		if i < obj_flips.size() and obj_flips[i]:
-			if hex_dist(col, row, OBJECTIVES[i].x, OBJECTIVES[i].y) <= 2:
+			if hex_dist(col, row, OBJECTIVES[i].x, OBJECTIVES[i].y) <= OC_RADIUS:
 				draw_colored_polygon(corners, Color(1.0, 0.9, 0.2, 0.15))
 			if col == OBJECTIVES[i].x and row == OBJECTIVES[i].y:
 				var glow_pts = PackedVector2Array(corners)
@@ -1999,88 +2447,129 @@ func _draw_tile(col: int, row: int):
 		if OBJECTIVES[i] == Vector2i(col, row):
 			_draw_banner(center, i)
 
-func _draw_unit_final(uid: int, final_units: Array, timelines: Array, is_ghost: bool, alpha: float):
+func _draw_unit_final(uid: int, final_units: Array, timelines: Array, formations_tl: Array, is_ghost: bool, alpha: float):
 	var u = final_units[uid]
 	var trail: Array = timelines[uid]
+	var ftl: Array = formations_tl[uid] if uid < formations_tl.size() else []
 	var final_pos = Vector2i(-1, -1)
+	var final_idx := 0
 	if u.eliminated:
-		var et = mini(u.elim_turn, trail.size() - 1)
-		final_pos = trail[et]
+		final_idx = mini(u.elim_turn, trail.size() - 1)
+		final_pos = trail[final_idx]
 	else:
-		final_pos = trail[trail.size() - 1]
+		final_idx = trail.size() - 1
+		final_pos = trail[final_idx]
 	if final_pos == Vector2i(-1, -1): return
-	var center = hex_to_pixel(final_pos.x, final_pos.y)
+	var final_form: Array = ftl[final_idx] if final_idx < ftl.size() else [final_pos]
 	if u.eliminated:
-		var r = 8.0 * cam_zoom
-		draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
-			Color(0.9, 0.2, 0.2, 0.35 if is_ghost else 0.7), 2.5)
-		draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
-			Color(0.9, 0.2, 0.2, 0.35 if is_ghost else 0.7), 2.5)
+		for fh in final_form:
+			var center = hex_to_pixel(fh.x, fh.y)
+			var r = 8.0 * cam_zoom
+			draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
+				Color(0.9, 0.2, 0.2, 0.35 if is_ghost else 0.7), 2.5)
+			draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
+				Color(0.9, 0.2, 0.2, 0.35 if is_ghost else 0.7), 2.5)
 	else:
-		_draw_unit_token(center, u.player, u.models, u.unit_type, is_ghost, alpha)
+		for fh in final_form:
+			var center = hex_to_pixel(fh.x, fh.y)
+			_draw_unit_token(center, u.player, u.models, u.unit_type, is_ghost, alpha)
 
-func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, combat_ev: Array, display_turn: int, is_preview_unit: bool, _snail_trail: bool = false):
+func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, formations_tl: Array, combat_ev: Array, display_turn: int, is_preview_unit: bool, _snail_trail: bool = false):
 	var u = final_units[uid]
 	var trail: Array = timelines[uid]
+	var ftl: Array = formations_tl[uid] if uid < formations_tl.size() else []
 	var alive_until = u.elim_turn if u.eliminated else TURNS
 	var max_ti = mini(alive_until + 1, trail.size() - 1)
 	var base = C_P1 if u.player == 1 else C_P2
 	var highlight_a = 0.25 if is_preview_unit else 0.30
-	# Path hex highlights
+	# Path hex highlights — highlight all formation hexes per turn
 	for ti in (max_ti + 1):
 		var pos = trail[ti]
 		if pos == Vector2i(-1, -1): continue
-		var hc = hex_to_pixel(pos.x, pos.y)
-		var corners = hex_corners(hc)
-		draw_colored_polygon(corners, Color(base.r, base.g, base.b, highlight_a))
-	# Snail trail ribbon
+		var form: Array = ftl[ti] if ti < ftl.size() else [pos]
+		for fh in form:
+			var hc = hex_to_pixel(fh.x, fh.y)
+			var corners = hex_corners(hc)
+			draw_colored_polygon(corners, Color(base.r, base.g, base.b, highlight_a))
+	# Snail trail ribbon (uses anchor positions)
 	var ribbon_w = HEX_SIZE * (0.6 if is_preview_unit else 0.7) * cam_zoom
 	var ribbon_a = 0.50 if is_preview_unit else 0.6
+	var is_disrupted = u.disrupted and u.disrupted_turn >= 0
+	var disrupt_ti = (u.disrupted_turn + 1) if is_disrupted else -1
 	for ti in max_ti:
 		var from_pos = trail[ti]
 		var to_pos = trail[ti + 1]
 		if from_pos == to_pos: continue
 		if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
+		if is_disrupted and ti == disrupt_ti: continue  # skip ribbon at disruption
 		var pa = hex_to_pixel(from_pos.x, from_pos.y)
 		var pb = hex_to_pixel(to_pos.x, to_pos.y)
 		var dir = (pb - pa).normalized()
 		var perp = Vector2(-dir.y, dir.x) * ribbon_w
 		var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
 		draw_colored_polygon(quad, Color(base.r, base.g, base.b, ribbon_a))
-	# Snail trail ghost tokens with caterpillar taper
+	# Disruption break visual
+	if is_disrupted and u.disrupted_from != Vector2i(-1, -1) and disrupt_ti < trail.size():
+		var yank_pos = trail[disrupt_ti] if disrupt_ti < trail.size() else Vector2i(u.col, u.row)
+		if yank_pos != Vector2i(-1, -1):
+			var pa = hex_to_pixel(u.disrupted_from.x, u.disrupted_from.y)
+			var pb = hex_to_pixel(yank_pos.x, yank_pos.y)
+			var disrupt_color = Color(0.8, 0.2, 1.0, 0.9)
+			var seg_len = 6.0 * cam_zoom
+			var total = pa.distance_to(pb)
+			if total > 0:
+				var ddir = (pb - pa).normalized()
+				var perp2 = Vector2(-ddir.y, ddir.x)
+				var steps = int(total / seg_len)
+				for si in maxi(steps, 1):
+					var t0 = float(si) / float(maxi(steps, 1))
+					var t1 = float(si + 1) / float(maxi(steps, 1))
+					var p0 = pa.lerp(pb, t0) + perp2 * (seg_len * (0.5 if si % 2 == 0 else -0.5))
+					var p1 = pa.lerp(pb, t1) + perp2 * (seg_len * (0.5 if (si + 1) % 2 == 0 else -0.5))
+					draw_line(p0, p1, disrupt_color, 2.5 * cam_zoom)
+			var r2 = 10.0 * cam_zoom
+			draw_line(pa + Vector2(-r2, -r2), pa + Vector2(r2, r2), disrupt_color, 2.5 * cam_zoom)
+			draw_line(pa + Vector2(r2, -r2), pa + Vector2(-r2, r2), disrupt_color, 2.5 * cam_zoom)
+	# Snail trail ghost tokens with caterpillar taper — draw on all formation hexes
 	var worm_alpha = 0.75 if is_preview_unit else 0.85
 	for ti in (max_ti + 1):
 		var pos = trail[ti]
 		if pos == Vector2i(-1, -1): continue
-		var center = hex_to_pixel(pos.x, pos.y)
+		var form: Array = ftl[ti] if ti < ftl.size() else [pos]
 		if ti != display_turn:
-			_draw_unit_token(center, u.player, u.models, u.unit_type, true, worm_alpha, ti)
+			for fh in form:
+				var center = hex_to_pixel(fh.x, fh.y)
+				_draw_unit_token(center, u.player, u.models, u.unit_type, true, worm_alpha, ti)
 		if ti < max_ti:
 			var next_pos = trail[ti + 1]
 			if next_pos == Vector2i(-1, -1) or next_pos == pos: continue
+			# Interpolation taper uses anchor-to-anchor
+			var center = hex_to_pixel(pos.x, pos.y)
 			var next_center = hex_to_pixel(next_pos.x, next_pos.y)
 			for interp in [0.17, 0.33, 0.50, 0.67, 0.83]:
 				var mid = center.lerp(next_center, interp)
 				var interp_frame = ti if interp < 0.5 else ti + 1
 				_draw_unit_token_scaled(mid, u.player, u.models, u.unit_type, worm_alpha * 0.85, 0.7, interp_frame)
-	# Current-turn token
+	# Current-turn token — draw at all formation hexes
 	var cur_idx = mini(display_turn, trail.size() - 1)
-	var next_idx = mini(display_turn + 1, trail.size() - 1)
 	if trail[cur_idx] != Vector2i(-1, -1):
-		var pos_a = hex_to_pixel(trail[cur_idx].x, trail[cur_idx].y)
-		var pos_b = hex_to_pixel(trail[next_idx].x, trail[next_idx].y)
-		var center = pos_a.lerp(pos_b, anim_frac)
+		var cur_form: Array = ftl[cur_idx] if cur_idx < ftl.size() else [trail[cur_idx]]
 		if u.eliminated and u.elim_turn <= display_turn - 1:
-			var r = 8.0 * cam_zoom
-			draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
-				Color(0.9, 0.2, 0.2, 0.7), 2.5)
-			draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
-				Color(0.9, 0.2, 0.2, 0.7), 2.5)
+			for fh in cur_form:
+				var center = hex_to_pixel(fh.x, fh.y)
+				var r = 8.0 * cam_zoom
+				draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
+					Color(0.9, 0.2, 0.2, 0.7), 2.5)
+				draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
+					Color(0.9, 0.2, 0.2, 0.7), 2.5)
 		else:
-			_draw_unit_token(center, u.player, u.models, u.unit_type, false, 1.0)
+			for fh in cur_form:
+				var center = hex_to_pixel(fh.x, fh.y)
+				_draw_unit_token(center, u.player, u.models, u.unit_type, false, 1.0)
 
 func _draw_sim(sim: Dictionary, is_preview: bool):
 	var timelines   : Array = sim.get("timelines", [])
+	var formations_tl : Array = sim.get("formations_timeline", [])
 	var final_units : Array = sim.get("units", [])
 	var combat_ev   : Array = sim.get("combat", [])
 
@@ -2092,70 +2581,187 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 	# During preview, determine which units are affected by the placement
 	var changed: Dictionary = preview_diff.get("changed_uids", {}) if is_preview else {}
 
+	# Fall back to CLEAN when CHANGED has no active preview
+	if effective_mode == ViewMode.CHANGED and not is_preview:
+		effective_mode = ViewMode.CLEAN
+
 	# Which units get snail trails depends on view mode
 	var show_timeline_for_uid := func(uid: int) -> bool:
 		if effective_mode == ViewMode.FULL:
 			return true  # all units
 		if effective_mode == ViewMode.CHANGED:
-			# Show trails for changed units, preview unit, AND all units (so enemies visible)
-			return true
+			# Only preview unit gets team-colored trail; changed units use red/green diff only
+			return is_preview and uid == timelines.size() - 1
 		# CLEAN mode: only preview unit gets trail, others at final position
 		if not is_preview: return false
 		return uid == timelines.size() - 1
 
-	# --- 0) Red ghost trails for units whose paths will change (preview only) ---
-	if is_preview and not changed.is_empty() and not confirmed_sim.is_empty():
+	# --- Hover trail highlight: bright glow on hovered unit's entire trail ---
+	if hover_trail_uid >= 0 and hover_trail_uid < formations_tl.size():
+		var hu = final_units[hover_trail_uid]
+		var h_ftl: Array = formations_tl[hover_trail_uid]
+		var h_trail: Array = timelines[hover_trail_uid]
+		var h_alive = hu.elim_turn if hu.eliminated else TURNS
+		var h_max = mini(h_alive + 1, h_ftl.size() - 1)
+		var h_color = C_P1 if hu.player == 1 else C_P2
+		var glow = Color(h_color.r, h_color.g, h_color.b, 0.85)
+		var outline_col = Color(1, 1, 1, 0.9)
+		# Glow on all formation hexes — double pass for stronger effect
+		for ti in (h_max + 1):
+			var form: Array = h_ftl[ti] if ti < h_ftl.size() else []
+			for fh in form:
+				if fh == Vector2i(-1, -1): continue
+				var hc = hex_to_pixel(fh.x, fh.y)
+				var corners = hex_corners(hc)
+				draw_colored_polygon(corners, glow)
+				draw_polyline(corners + PackedVector2Array([corners[0]]), outline_col, 4.0)
+		# Bright ribbon along trail
+		var h_ribbon_w = HEX_SIZE * 1.1 * cam_zoom
+		for ti in h_max:
+			var from_pos = h_trail[ti]
+			var to_pos = h_trail[ti + 1]
+			if from_pos == to_pos: continue
+			if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
+			var pa = hex_to_pixel(from_pos.x, from_pos.y)
+			var pb = hex_to_pixel(to_pos.x, to_pos.y)
+			var dir = (pb - pa).normalized()
+			var perp = Vector2(-dir.y, dir.x) * h_ribbon_w
+			var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
+			draw_colored_polygon(quad, Color(h_color.r, h_color.g, h_color.b, 0.7))
+
+	# --- 0) Changed trail crossfade (CHANGED mode preview only) ---
+	# Hold each phase 1.5s, quick 0.5s smoothstep crossfade between them (4s total cycle)
+	if is_preview and effective_mode == ViewMode.CHANGED and not changed.is_empty() and not confirmed_sim.is_empty():
+		var cycle = fmod(_diff_flash_time, 4.0)
+		var old_blend: float
+		if cycle < 1.5:
+			old_blend = 1.0
+		elif cycle < 2.0:
+			var t = (cycle - 1.5) / 0.5
+			old_blend = 1.0 - t * t * (3.0 - 2.0 * t)
+		elif cycle < 3.5:
+			old_blend = 0.0
+		else:
+			var t = (cycle - 3.5) / 0.5
+			old_blend = t * t * (3.0 - 2.0 * t)
+		var new_blend = 1.0 - old_blend
 		var old_timelines: Array = confirmed_sim.get("timelines", [])
 		var old_units: Array = confirmed_sim.get("units", [])
-		var red = Color(0.9, 0.2, 0.15)
+		var old_col = Color(0.75, 0.55, 0.95)  # pale purple
+		var new_col = Color(1.0, 0.95, 0.45)   # pale yellow
 		for uid in changed:
+			# Skip the preview unit itself (it has no "old" path)
 			if uid >= old_timelines.size(): continue
-			var ou = old_units[uid]
-			var old_trail: Array = old_timelines[uid]
-			var alive_until = ou.elim_turn if ou.eliminated else TURNS
-			var max_ti = mini(alive_until + 1, old_trail.size() - 1)
-			# Red ribbon
-			for ti in max_ti:
-				var from_pos = old_trail[ti]
-				var to_pos = old_trail[ti + 1]
-				if from_pos == to_pos: continue
-				if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
-				var pa = hex_to_pixel(from_pos.x, from_pos.y)
-				var pb = hex_to_pixel(to_pos.x, to_pos.y)
-				var dir = (pb - pa).normalized()
-				var perp = Vector2(-dir.y, dir.x) * HEX_SIZE * 0.7 * cam_zoom
-				var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
-				draw_colored_polygon(quad, Color(red.r, red.g, red.b, 0.35))
-			# Red hex highlights
-			for ti in (max_ti + 1):
-				var pos = old_trail[ti]
-				if pos == Vector2i(-1, -1): continue
-				var hc = hex_to_pixel(pos.x, pos.y)
-				var corners = hex_corners(hc)
-				draw_colored_polygon(corners, Color(red.r, red.g, red.b, 0.20))
+			# OLD path (pale purple) — what would have happened without this unit
+			if old_blend > 0.02:
+				var ou = old_units[uid]
+				var old_trail: Array = old_timelines[uid]
+				var alive_until = ou.elim_turn if ou.eliminated else TURNS
+				var max_ti = mini(alive_until + 1, old_trail.size() - 1)
+				for ti in max_ti:
+					var from_pos = old_trail[ti]
+					var to_pos = old_trail[ti + 1]
+					if from_pos == to_pos: continue
+					if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
+					var pa = hex_to_pixel(from_pos.x, from_pos.y)
+					var pb = hex_to_pixel(to_pos.x, to_pos.y)
+					var dir = (pb - pa).normalized()
+					var perp = Vector2(-dir.y, dir.x) * HEX_SIZE * 0.9 * cam_zoom
+					var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
+					draw_colored_polygon(quad, Color(old_col.r, old_col.g, old_col.b, 0.80 * old_blend))
+				var old_ftl: Array = confirmed_sim.get("formations_timeline", [])
+				if uid < old_ftl.size():
+					for ti in (max_ti + 1):
+						var form: Array = old_ftl[uid][ti] if ti < old_ftl[uid].size() else []
+						for fh in form:
+							if fh == Vector2i(-1, -1): continue
+							var hc = hex_to_pixel(fh.x, fh.y)
+							var corners = hex_corners(hc)
+							draw_colored_polygon(corners, Color(old_col.r, old_col.g, old_col.b, 0.55 * old_blend))
+							draw_polyline(corners + PackedVector2Array([corners[0]]), Color(old_col.r, old_col.g, old_col.b, 0.80 * old_blend), 2.0)
+			# NEW path (pale yellow) — what will happen with this unit
+			if new_blend > 0.02 and uid < timelines.size():
+				var new_trail: Array = timelines[uid]
+				var nu = final_units[uid]
+				var new_alive = nu.elim_turn if nu.eliminated else TURNS
+				var new_max = mini(new_alive + 1, new_trail.size() - 1)
+				for ti in new_max:
+					var from_pos = new_trail[ti]
+					var to_pos = new_trail[ti + 1]
+					if from_pos == to_pos: continue
+					if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
+					var pa = hex_to_pixel(from_pos.x, from_pos.y)
+					var pb = hex_to_pixel(to_pos.x, to_pos.y)
+					var dir = (pb - pa).normalized()
+					var perp = Vector2(-dir.y, dir.x) * HEX_SIZE * 0.9 * cam_zoom
+					var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
+					draw_colored_polygon(quad, Color(new_col.r, new_col.g, new_col.b, 0.80 * new_blend))
+				if uid < formations_tl.size():
+					for ti in (new_max + 1):
+						var form: Array = formations_tl[uid][ti] if ti < formations_tl[uid].size() else []
+						for fh in form:
+							if fh == Vector2i(-1, -1): continue
+							var hc = hex_to_pixel(fh.x, fh.y)
+							var corners = hex_corners(hc)
+							draw_colored_polygon(corners, Color(new_col.r, new_col.g, new_col.b, 0.55 * new_blend))
+							draw_polyline(corners + PackedVector2Array([corners[0]]), Color(new_col.r, new_col.g, new_col.b, 0.80 * new_blend), 2.0)
+		# Phase label tooltip — "WITHOUT" / "WITH UNIT" follows cursor
+		var cw_font = ThemeDB.fallback_font
+		var cw_fs = 15
+		var cw_pad = 8
+		var cw_text = ""
+		var cw_col = Color.WHITE
+		var cw_a = 0.0
+		if old_blend >= new_blend:
+			cw_a = clampf(old_blend * 1.5, 0.0, 1.0)
+			cw_text = "WITHOUT"
+			cw_col = old_col
+		else:
+			cw_a = clampf(new_blend * 1.5, 0.0, 1.0)
+			cw_text = "WITH UNIT"
+			cw_col = new_col
+		if cw_a > 0.05:
+			var cw_tw = cw_font.get_string_size(cw_text, HORIZONTAL_ALIGNMENT_LEFT, -1, cw_fs).x + cw_pad * 2
+			var cw_th = 20 + cw_pad * 2
+			var cw_vp = get_viewport_rect().size
+			var cw_x = _mouse_pos.x + 20
+			var cw_y = _mouse_pos.y - cw_th - 45
+			if cw_x + cw_tw > cw_vp.x - 10:
+				cw_x = _mouse_pos.x - cw_tw - 10
+			if cw_y < 10:
+				cw_y = _mouse_pos.y + 60
+			draw_rect(Rect2(cw_x, cw_y, cw_tw, cw_th), Color(0.05, 0.05, 0.1, 0.85 * cw_a))
+			draw_rect(Rect2(cw_x, cw_y, cw_tw, cw_th), Color(cw_col.r, cw_col.g, cw_col.b, 0.6 * cw_a), false, 2.0)
+			draw_string(cw_font, Vector2(cw_x + cw_pad, cw_y + cw_pad + 13), cw_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, cw_fs, Color(cw_col.r, cw_col.g, cw_col.b, cw_a))
 
 	# --- 0b) Draw units without timelines at their final position ---
+	var fog_mode = (effective_mode == ViewMode.CHANGED and is_preview)
 	for uid in timelines.size():
 		if show_timeline_for_uid.call(uid): continue
-		_draw_unit_final(uid, final_units, timelines, false, 1.0)
+		_draw_unit_final(uid, final_units, timelines, formations_tl, fog_mode, 0.20 if fog_mode else 1.0)
 
-	# --- 1) Highlight path hexes for each unit ---
+	# --- 1) Highlight path hexes for each unit (all formation hexes) ---
 	for uid in timelines.size():
 		if not show_timeline_for_uid.call(uid): continue
 		var u    = final_units[uid]
 		var trail: Array = timelines[uid]
+		var ftl: Array = formations_tl[uid] if uid < formations_tl.size() else []
 		var alive_until = u.elim_turn if u.eliminated else TURNS
 		var max_ti = mini(alive_until + 1, trail.size() - 1)
 		var is_preview_unit = (is_preview and uid == timelines.size() - 1)
 		var base = C_P1 if u.player == 1 else C_P2
 		var highlight_a = 0.25 if is_preview_unit else 0.30
+		if effective_mode == ViewMode.CHANGED: highlight_a = 0.50
 
 		for ti in (max_ti + 1):
 			var pos = trail[ti]
 			if pos == Vector2i(-1, -1): continue
-			var hc = hex_to_pixel(pos.x, pos.y)
-			var corners = hex_corners(hc)
-			draw_colored_polygon(corners, Color(base.r, base.g, base.b, highlight_a))
+			var form: Array = ftl[ti] if ti < ftl.size() else [pos]
+			for fh in form:
+				var hc = hex_to_pixel(fh.x, fh.y)
+				var corners = hex_corners(hc)
+				draw_colored_polygon(corners, Color(base.r, base.g, base.b, highlight_a))
 
 	# --- 2) Draw path connections ---
 	for uid in timelines.size():
@@ -2170,11 +2776,20 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 		# Snail trail: filled ribbon between consecutive positions
 		var ribbon_w = HEX_SIZE * (0.6 if is_preview_unit else 0.7) * cam_zoom
 		var ribbon_a = 0.50 if is_preview_unit else 0.6
+		if effective_mode == ViewMode.CHANGED:
+			ribbon_a = 0.85
+			ribbon_w = HEX_SIZE * 0.85 * cam_zoom
+		# Check if this unit was disrupted (for visual break in ribbon)
+		var is_disrupted = u.disrupted and u.disrupted_turn >= 0
+		var disrupt_ti = (u.disrupted_turn + 1) if is_disrupted else -1  # timeline index of disruption
 		for ti in max_ti:
 			var from_pos = trail[ti]
 			var to_pos   = trail[ti + 1]
 			if from_pos == to_pos: continue
 			if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
+			# Skip ribbon at disruption point — draw break instead
+			if is_disrupted and ti == disrupt_ti:
+				continue
 			var pa = hex_to_pixel(from_pos.x, from_pos.y)
 			var pb = hex_to_pixel(to_pos.x, to_pos.y)
 			var dir = (pb - pa).normalized()
@@ -2184,31 +2799,61 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 			])
 			draw_colored_polygon(quad, Color(base.r, base.g, base.b, ribbon_a))
 
-	# --- 3) Ghost tokens at each turn position ---
+		# Draw disruption break: dashed line from old position to yanked position
+		if is_disrupted and u.disrupted_from != Vector2i(-1, -1) and disrupt_ti < trail.size():
+			var yank_pos = trail[disrupt_ti] if disrupt_ti < trail.size() else Vector2i(u.col, u.row)
+			if yank_pos != Vector2i(-1, -1):
+				var pa = hex_to_pixel(u.disrupted_from.x, u.disrupted_from.y)
+				var pb = hex_to_pixel(yank_pos.x, yank_pos.y)
+				# Draw jagged disruption line (purple/magenta for temporal effect)
+				var disrupt_color = Color(0.8, 0.2, 1.0, 0.9)
+				var seg_len = 6.0 * cam_zoom
+				var total = pa.distance_to(pb)
+				if total > 0:
+					var dir = (pb - pa).normalized()
+					var perp = Vector2(-dir.y, dir.x)
+					var steps = int(total / seg_len)
+					for si in maxi(steps, 1):
+						var t0 = float(si) / float(maxi(steps, 1))
+						var t1 = float(si + 1) / float(maxi(steps, 1))
+						var p0 = pa.lerp(pb, t0) + perp * (seg_len * (0.5 if si % 2 == 0 else -0.5))
+						var p1 = pa.lerp(pb, t1) + perp * (seg_len * (0.5 if (si + 1) % 2 == 0 else -0.5))
+						draw_line(p0, p1, disrupt_color, 2.5 * cam_zoom)
+				# Draw X marks at the disrupted-from position (old fate severed)
+				var r = 10.0 * cam_zoom
+				draw_line(pa + Vector2(-r, -r), pa + Vector2(r, r), disrupt_color, 2.5 * cam_zoom)
+				draw_line(pa + Vector2(r, -r), pa + Vector2(-r, r), disrupt_color, 2.5 * cam_zoom)
+
+	# --- 3) Ghost tokens at each turn position (all formation hexes) ---
 	for uid in timelines.size():
 		if not show_timeline_for_uid.call(uid): continue
 		var u    = final_units[uid]
 		var trail: Array = timelines[uid]
+		var ftl: Array = formations_tl[uid] if uid < formations_tl.size() else []
 		var alive_until = u.elim_turn if u.eliminated else TURNS
 		var max_ti = mini(alive_until + 1, trail.size() - 1)
 		var is_preview_unit = (is_preview and uid == timelines.size() - 1)
 
 		# Snail trail: each turn gets a distinct sprite pose, dense interpolation between
 		var worm_alpha = 0.75 if is_preview_unit else 0.85
+		if effective_mode == ViewMode.CHANGED: worm_alpha = 0.95
 		for ti in (max_ti + 1):
 			var pos = trail[ti]
 			if pos == Vector2i(-1, -1): continue
-			var center = hex_to_pixel(pos.x, pos.y)
 			if show_anim_scan and ti == display_turn: continue  # current-turn token drawn in section 5
-			# Full-size sprite at each turn position
-			_draw_unit_token(center, u.player, u.models, u.unit_type, true, worm_alpha, ti)
-			# Caterpillar taper: smaller sprites between stops
+			# Full-size sprite at each formation hex
+			var form: Array = ftl[ti] if ti < ftl.size() else [pos]
+			for fh in form:
+				var center = hex_to_pixel(fh.x, fh.y)
+				_draw_unit_token(center, u.player, u.models, u.unit_type, true, worm_alpha, ti)
+			# Caterpillar taper: smaller sprites between anchor stops
 			if ti < max_ti:
 				var next_pos = trail[ti + 1]
 				if next_pos == Vector2i(-1, -1) or next_pos == pos: continue
+				var anchor_center = hex_to_pixel(pos.x, pos.y)
 				var next_center = hex_to_pixel(next_pos.x, next_pos.y)
 				for interp in [0.17, 0.33, 0.50, 0.67, 0.83]:
-					var mid = center.lerp(next_center, interp)
+					var mid = anchor_center.lerp(next_center, interp)
 					var interp_frame = ti if interp < 0.5 else ti + 1
 					_draw_unit_token_scaled(mid, u.player, u.models, u.unit_type, worm_alpha * 0.85, 0.7, interp_frame)
 
@@ -2229,28 +2874,30 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 				draw_circle(mid, 14.0 * cam_zoom, Color(C_COMBAT.r, C_COMBAT.g, C_COMBAT.b, 0.20))
 				_draw_swords(mid)
 
-		# --- 5) Current-turn tokens on top (animated position) ---
+		# --- 5) Current-turn tokens on top (at formation hexes) ---
 		for uid in timelines.size():
 			if not show_timeline_for_uid.call(uid): continue
 			var trail: Array = timelines[uid]
+			var ftl: Array = formations_tl[uid] if uid < formations_tl.size() else []
 			var u     = final_units[uid]
 			var cur_idx  = mini(display_turn, trail.size() - 1)
-			var next_idx = mini(display_turn + 1, trail.size() - 1)
 
 			if trail[cur_idx] == Vector2i(-1, -1): continue
 
-			var pos_a  = hex_to_pixel(trail[cur_idx].x,  trail[cur_idx].y)
-			var pos_b  = hex_to_pixel(trail[next_idx].x, trail[next_idx].y)
-			var center = pos_a.lerp(pos_b, anim_frac)
+			var cur_form: Array = ftl[cur_idx] if cur_idx < ftl.size() else [trail[cur_idx]]
 
 			if u.eliminated and u.elim_turn <= display_turn - 1:
-				var r = 8.0 * cam_zoom
-				draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
-					Color(0.9, 0.2, 0.2, 0.7), 2.5)
-				draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
-					Color(0.9, 0.2, 0.2, 0.7), 2.5)
+				for fh in cur_form:
+					var center = hex_to_pixel(fh.x, fh.y)
+					var r = 8.0 * cam_zoom
+					draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
+						Color(0.9, 0.2, 0.2, 0.7), 2.5)
+					draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
+						Color(0.9, 0.2, 0.2, 0.7), 2.5)
 				continue
-			_draw_unit_token(center, u.player, u.models, u.unit_type, false, 1.0)
+			for fh in cur_form:
+				var center = hex_to_pixel(fh.x, fh.y)
+				_draw_unit_token(center, u.player, u.models, u.unit_type, false, 1.0)
 
 	# --- 6) Fate icons during preview (sword/death/survival) ---
 	if is_preview and not preview_diff.is_empty():
@@ -2578,7 +3225,7 @@ func _generate_preview_narrative(sim: Dictionary) -> Array:
 		# Check objective proximity
 		var near_obj := -1
 		for oi in OBJECTIVES.size():
-			if hex_dist(pos.x, pos.y, OBJECTIVES[oi].x, OBJECTIVES[oi].y) <= 2:
+			if hex_dist(pos.x, pos.y, OBJECTIVES[oi].x, OBJECTIVES[oi].y) <= OC_RADIUS:
 				near_obj = oi
 				break
 		if near_obj != at_obj:
@@ -2655,7 +3302,7 @@ func _draw_preview_narrative(sim: Dictionary):
 	# Position below fate chart: scoreboard + fate chart
 	var sb_h = 31 * (TURNS + 1) + 20
 	var fate_h = 29 * (preview_sim.get("units", []).size() + 1) + 10
-	var panel_y = 56.0 + sb_h + 10 + fate_h + 10
+	var panel_y = 56.0 + sb_h + 10 + fate_h + 30
 
 	var panel_h = lines.size() * line_h + pad * 2
 	draw_rect(Rect2(panel_x, panel_y, panel_w, panel_h), Color(0.05, 0.05, 0.1, 0.85))
@@ -2666,6 +3313,87 @@ func _draw_preview_narrative(sim: Dictionary):
 		draw_string(font, Vector2(panel_x + pad, y), entry.text,
 			HORIZONTAL_ALIGNMENT_LEFT, panel_w - pad * 2, fs, entry.color)
 		y += line_h
+
+func _draw_trail_tooltip(sim: Dictionary):
+	if hover_trail_uid < 0: return
+	var final_units: Array = sim.get("units", [])
+	var names: Array = sim.get("unit_names", [])
+	var kills_data: Array = sim.get("unit_kills", [])
+	var dmg_data: Array = sim.get("unit_dmg", [])
+	var obj_data: Array = sim.get("unit_obj", [])
+	var timelines_t: Array = sim.get("timelines", [])
+	if hover_trail_uid >= final_units.size(): return
+
+	var u = final_units[hover_trail_uid]
+	var uname = names[hover_trail_uid] if hover_trail_uid < names.size() else "Unit"
+	var utype = u.unit_type.replace("_", " ").capitalize()
+	var team_col = C_P1 if u.player == 1 else C_P2
+	var team_str = "Blue" if u.player == 1 else "Red"
+	var stats = _get_stats(u.unit_type)
+
+	# Build tooltip lines
+	var lines: Array = []
+	lines.append({"text": "%s %s (%s)" % [utype, uname, team_str], "color": team_col})
+
+	# Survival status
+	if u.eliminated:
+		lines.append({"text": "Dies turn %d" % (u.elim_turn + 1), "color": Color(0.9, 0.3, 0.3)})
+	else:
+		var lost = stats.models - u.models
+		if lost > 0:
+			lines.append({"text": "Survives (%d/%d models)" % [u.models, stats.models], "color": Color(0.8, 0.8, 0.3)})
+		else:
+			lines.append({"text": "Survives unscathed", "color": Color(0.3, 0.9, 0.3)})
+
+	# Damage and kills
+	var dmg = dmg_data[hover_trail_uid] if hover_trail_uid < dmg_data.size() else 0
+	var kills = kills_data[hover_trail_uid] if hover_trail_uid < kills_data.size() else 0
+	if dmg > 0 or kills > 0:
+		lines.append({"text": "%d damage, %d kills" % [dmg, kills], "color": Color(0.9, 0.6, 0.2)})
+
+	# Objective contribution
+	if hover_trail_uid < obj_data.size():
+		var obj_strs: Array = []
+		for oi in 3:
+			var status = obj_data[hover_trail_uid][oi]
+			if status == "won":
+				obj_strs.append("O%d:WON" % (oi + 1))
+			elif status == "yes":
+				obj_strs.append("O%d:yes" % (oi + 1))
+		if obj_strs.size() > 0:
+			lines.append({"text": "Objectives: %s" % ", ".join(obj_strs), "color": Color(0.85, 0.85, 0.85)})
+
+	# Disruption info
+	if u.get("disrupted", false) and u.disrupted_turn >= 0:
+		lines.append({"text": "Disrupted turn %d" % (u.disrupted_turn + 1), "color": Color(0.8, 0.2, 1.0)})
+	if u.get("has_disrupted", false):
+		lines.append({"text": "Used temporal disruption", "color": Color(0.8, 0.2, 1.0)})
+
+	# Draw the panel near cursor
+	var font = ThemeDB.fallback_font
+	var vp = get_viewport_rect().size
+	var fs = 15
+	var line_h = 20
+	var pad = 8
+	var panel_w = 240.0
+	var panel_h = lines.size() * line_h + pad * 2
+
+	# Position near mouse, offset right+down, clamp to viewport
+	var px = _mouse_pos.x + 20
+	var py = _mouse_pos.y + 20
+	if px + panel_w > vp.x - 10:
+		px = _mouse_pos.x - panel_w - 10
+	if py + panel_h > vp.y - 10:
+		py = _mouse_pos.y - panel_h - 10
+
+	draw_rect(Rect2(px, py, panel_w, panel_h), Color(0.05, 0.05, 0.1, 0.9))
+	draw_rect(Rect2(px, py, panel_w, panel_h), Color(team_col.r, team_col.g, team_col.b, 0.6), false, 2.0)
+
+	var ty = py + pad + 13
+	for entry in lines:
+		draw_string(font, Vector2(px + pad, ty), entry.text,
+			HORIZONTAL_ALIGNMENT_LEFT, panel_w - pad * 2, fs, entry.color)
+		ty += line_h
 
 func _draw_scoreboard(sim: Dictionary):
 	var vpt: Array = sim.get("vp_per_turn", [])
@@ -2679,7 +3407,7 @@ func _draw_scoreboard(sim: Dictionary):
 	var col_w = 85
 	var pad   = 10
 	var board_w = col_w * 3  # turn label + blue + red
-	var board_h = row_h * (TURNS + 1) + pad * 2  # header + turn rows + padding
+	var board_h = row_h * (TURNS + 2) + pad * 2  # header + turn rows + delta row + padding
 	var bx = vp.x - board_w - 16  # right side
 	var by: float = 56.0  # below HUD bar
 
@@ -2735,7 +3463,7 @@ func _draw_unit_fate(sim: Dictionary):
 		total_w += w
 
 	# Position below scoreboard
-	var sb_h = 31 * (TURNS + 1) + 20
+	var sb_h = 31 * (TURNS + 2) + 20
 	var bx = vp.x - total_w - 16
 	var by = 56.0 + sb_h + 10
 
@@ -2872,6 +3600,7 @@ func _draw_final_state(sim: Dictionary):
 	if sim.is_empty():
 		return
 	var timelines: Array = sim.get("timelines", [])
+	var formations_tl: Array = sim.get("formations_timeline", [])
 	var final_units: Array = sim.get("units", [])
 
 	# Set objective control to final state
@@ -2882,25 +3611,9 @@ func _draw_final_state(sim: Dictionary):
 		for c in COLS:
 			_draw_tile(c, r)
 
-
-	# Draw all units at their final positions
+	# Draw all units at their final positions (using formation data)
 	for uid in timelines.size():
-		var u = final_units[uid]
-		var trail: Array = timelines[uid]
-		var final_pos = trail[trail.size() - 1] if trail.size() > 0 else Vector2i(-1, -1)
-		# For eliminated units, use their last alive position
-		if u.eliminated and u.elim_turn < trail.size():
-			final_pos = trail[u.elim_turn]
-		if final_pos == Vector2i(-1, -1): continue
-		var center = hex_to_pixel(final_pos.x, final_pos.y)
-		if u.eliminated:
-			var r2 = 8.0 * cam_zoom
-			draw_line(center + Vector2(-r2, -r2), center + Vector2(r2, r2),
-				Color(0.9, 0.2, 0.2, 0.7), 2.5)
-			draw_line(center + Vector2(r2, -r2), center + Vector2(-r2, r2),
-				Color(0.9, 0.2, 0.2, 0.7), 2.5)
-		else:
-			_draw_unit_token(center, u.player, u.models, u.unit_type, false, 1.0)
+		_draw_unit_final(uid, final_units, timelines, formations_tl, false, 1.0)
 
 	# Draw preview unit's full timeline on top so player sees their unit's path
 	var is_preview = (not preview_sim.is_empty()) and sim == preview_sim
@@ -2908,7 +3621,7 @@ func _draw_final_state(sim: Dictionary):
 		var puid = timelines.size() - 1
 		var combat_ev: Array = sim.get("combat", [])
 		var display_turn = mini(anim_turn, TURNS)
-		_draw_single_timeline(puid, final_units, timelines, combat_ev, display_turn, true)
+		_draw_single_timeline(puid, final_units, timelines, formations_tl, combat_ev, display_turn, true)
 
 func _draw_replay():
 	var sim = confirmed_sim
@@ -2940,27 +3653,32 @@ func _draw_replay():
 	# Draw only the units at their replay_turn position — no ghosts, no trails
 	var snap: Array = snapshots[replay_turn] if replay_turn < snapshots.size() else []
 	for uid in timelines.size():
-		var trail: Array = timelines[uid]
-		# timeline index: turn 0 result is at index 1 (index 0 is deployment)
-		var ti = mini(replay_turn + 1, trail.size() - 1)
-		var pos = trail[ti]
-		if pos == Vector2i(-1, -1): continue  # deep strike off-map
-		var center = hex_to_pixel(pos.x, pos.y)
-
 		var u_snap = snap[uid] if uid < snap.size() else {}
 		var is_elim = u_snap.get("eliminated", false)
 		var models = u_snap.get("models", 0)
 		var u = final_units[uid]
+		# Use snapshot formation if available, else fall back to timeline position
+		var snap_form: Array = u_snap.get("formation", [])
+		if snap_form.is_empty():
+			var trail: Array = timelines[uid]
+			var ti = mini(replay_turn + 1, trail.size() - 1)
+			var pos = trail[ti]
+			if pos == Vector2i(-1, -1): continue
+			snap_form = [pos]
 
 		if is_elim:
-			var r = 8.0 * cam_zoom
-			draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
-				Color(0.9, 0.2, 0.2, 0.7), 2.5)
-			draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
-				Color(0.9, 0.2, 0.2, 0.7), 2.5)
+			for fh in snap_form:
+				var center = hex_to_pixel(fh.x, fh.y)
+				var r = 8.0 * cam_zoom
+				draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
+					Color(0.9, 0.2, 0.2, 0.7), 2.5)
+				draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
+					Color(0.9, 0.2, 0.2, 0.7), 2.5)
 			continue
 
-		_draw_unit_token(center, u.player, models, u.unit_type, false, 1.0)
+		for fh in snap_form:
+			var center = hex_to_pixel(fh.x, fh.y)
+			_draw_unit_token(center, u.player, models, u.unit_type, false, 1.0)
 
 	# Draw combat events for this turn
 	var combat_ev: Array = sim.get("combat", [])

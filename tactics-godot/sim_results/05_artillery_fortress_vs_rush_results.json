@@ -1,0 +1,645 @@
+{
+  "combat_log": [
+    "=== Deployment: 16 units (8 Blue, 8 Red) ===",
+    "  A Ben (Blue) at (6,19)",
+    "  A Dan (Blue) at (10,19)",
+    "  A Ada (Blue) at (18,19)",
+    "  A Odo (Blue) at (22,19)",
+    "  I Kit (Blue) at (6,17)",
+    "  I Gil (Blue) at (10,17)",
+    "  I Jay (Blue) at (18,17)",
+    "  I Rex (Blue) at (22,17)",
+    "  C Hal (Red) at (6,1)",
+    "  C Sam (Red) at (10,1)",
+    "  C Ned (Red) at (14,1)",
+    "  C Pat (Red) at (18,1)",
+    "  C Leo (Red) at (22,1)",
+    "  I Ida (Red) at (8,2)",
+    "  I Tom (Red) at (16,2)",
+    "  I Finn (Red) at (20,2)",
+    "",
+    "--- Turn 1 ---",
+    "  I Kit (Blue) moves (6,17)->(7,11)",
+    "  I Gil (Blue) moves (10,17)->(11,11)",
+    "  I Jay (Blue) moves (18,17)->(20,12)",
+    "  I Rex (Blue) moves (22,17)->(18,13)",
+    "  C Hal (Red) moves (6,1)->(7,9)",
+    "  C Sam (Red) moves (10,1)->(14,9)",
+    "  C Ned (Red) moves (14,1)->(9,8)",
+    "  C Pat (Red) moves (18,1)->(20,10)",
+    "  C Leo (Red) moves (22,1)->(21,10)",
+    "  I Ida (Red) moves (8,2)->(8,8)",
+    "  I Tom (Red) moves (16,2)->(11,5)",
+    "  I Finn (Red) moves (20,2)->(15,5)",
+    "  A Ben shoots I Finn (range):",
+    "    Finn takes 6 wounds (3 models killed)",
+    "  A Dan shoots I Finn (range):",
+    "    Finn takes 6 wounds (3 models killed)",
+    "  A Ada shoots I Tom (range):",
+    "    Tom takes 12 wounds (6 models killed)",
+    "  A Odo shoots I Tom (range):",
+    "    No wounds dealt",
+    "  I Kit vs C Hal (melee):",
+    "    Kit takes 2 wounds (1 models killed)",
+    "    Hal takes 2 wounds",
+    "  I Jay vs C Pat (melee):",
+    "    Jay takes 6 wounds (3 models killed)",
+    "    Pat takes 4 wounds",
+    "  C Leo vs I Jay (melee):",
+    "    Leo takes 3 wounds",
+    "    Jay takes 6 wounds (3 models killed)",
+    "  Objectives:",
+    "    O1 (7,10): Blue",
+    "    O2 (14,9): Red",
+    "    O3 (21,10): Red",
+    "  Score: Blue 5 - Red 10",
+    "",
+    "--- Turn 2 ---",
+    "  I Gil (Blue) moves (11,11)->(8,11)",
+    "  I Rex (Blue) moves (18,13)->(19,11)",
+    "  C Sam (Red) moves (14,9)->(17,10)",
+    "  C Ned (Red) moves (9,8)->(9,9)",
+    "  I Ida (Red) moves (8,8)->(8,9)",
+    "  I Tom (Red) moves (11,5)->(14,9)",
+    "  I Finn (Red) moves (15,5)->(20,9)",
+    "  A Ben shoots I Finn (range):",
+    "    Finn takes 9 wounds (4 models killed)",
+    "    >>> I Finn ELIMINATED <<<",
+    "  A Dan shoots C Pat (range):",
+    "    Pat takes 3 wounds (1 models killed)",
+    "  A Ada shoots C Hal (range):",
+    "    No wounds dealt",
+    "  A Odo shoots C Hal (range):",
+    "    Hal takes 3 wounds (1 models killed)",
+    "  I Kit vs C Hal (melee):",
+    "    Kit takes 4 wounds (2 models killed)",
+    "    Hal takes 4 wounds",
+    "  I Gil vs C Hal (melee):",
+    "    Gil takes 8 wounds (4 models killed)",
+    "    Hal takes 3 wounds (1 models killed)",
+    "  I Jay vs C Pat (melee):",
+    "    Jay takes 4 wounds (2 models killed)",
+    "    Pat takes 2 wounds",
+    "  I Rex vs C Sam (melee):",
+    "    Rex takes 14 wounds (7 models killed)",
+    "    Sam takes 3 wounds",
+    "  C Ned vs I Gil (melee):",
+    "    Ned takes 1 wounds",
+    "    Gil takes 8 wounds (4 models killed)",
+    "  C Leo vs I Jay (melee):",
+    "    Leo takes 2 wounds (1 models killed)",
+    "    Jay takes 12 wounds (2 models killed)",
+    "    >>> I Jay ELIMINATED <<<",
+    "  I Ida vs I Gil (melee):",
+    "    Ida takes 1 wounds",
+    "    Gil takes 6 wounds (2 models killed)",
+    "    >>> I Gil ELIMINATED <<<",
+    "  Objectives:",
+    "    O1 (7,10): Red",
+    "    O2 (14,9): Red",
+    "    O3 (21,10): Red",
+    "  Score: Blue 5 - Red 25",
+    "",
+    "--- Turn 3 ---",
+    "  C Ned (Red) moves (9,9)->(8,10)",
+    "  I Ida (Red) moves (8,9)->(6,10)",
+    "  A Ben shoots C Pat (range):",
+    "    Pat takes 6 wounds (2 models killed)",
+    "  A Dan shoots C Pat (range):",
+    "    Pat takes 3 wounds",
+    "  A Ada shoots C Hal (range):",
+    "    Hal takes 9 wounds (2 models killed)",
+    "  A Odo shoots C Hal (range):",
+    "    No wounds dealt",
+    "  I Kit vs C Hal (melee):",
+    "    Kit takes 2 wounds (1 models killed)",
+    "    Hal takes 2 wounds",
+    "  I Rex vs C Sam (melee):",
+    "    Rex takes 4 wounds (2 models killed)",
+    "    Sam takes 1 wounds",
+    "  C Ned vs I Kit (melee):",
+    "    Ned takes 5 wounds (1 models killed)",
+    "    Kit takes 6 wounds (3 models killed)",
+    "  C Pat vs I Rex (melee):",
+    "    Rex takes 4 wounds (1 models killed)",
+    "    >>> I Rex ELIMINATED <<<",
+    "  I Ida vs I Kit (melee):",
+    "    Ida takes 4 wounds (2 models killed)",
+    "    Kit takes 6 wounds (3 models killed)",
+    "    >>> I Kit ELIMINATED <<<",
+    "  Objectives:",
+    "    O1 (7,10): Red",
+    "    O2 (14,9): Red",
+    "    O3 (21,10): Red",
+    "  Score: Blue 5 - Red 40",
+    "",
+    "--- Turn 4 ---",
+    "  C Hal (Red) moves (7,9)->(7,10)",
+    "  C Sam (Red) moves (17,10)->(17,17)",
+    "  C Ned (Red) moves (8,10)->(7,10)",
+    "  C Pat (Red) moves (20,10)->(21,10)",
+    "  I Ida (Red) moves (6,10)->(7,10)",
+    "  A Ben shoots C Pat (range):",
+    "    Pat takes 3 wounds (1 models killed)",
+    "  A Dan shoots C Pat (range):",
+    "    No wounds dealt",
+    "  A Odo shoots C Hal (range):",
+    "    Hal takes 3 wounds (1 models killed)",
+    "    >>> C Hal ELIMINATED <<<",
+    "  A Ada vs C Sam (melee):",
+    "    Ada takes 4 wounds",
+    "  Objectives:",
+    "    O1 (7,10): Red",
+    "    O2 (14,9): Red",
+    "    O3 (21,10): Red",
+    "  Score: Blue 5 - Red 55",
+    "",
+    "--- Turn 5 ---",
+    "  A Ben shoots C Pat (range):",
+    "    Pat takes 6 wounds (1 models killed)",
+    "    >>> C Pat ELIMINATED <<<",
+    "  A Dan shoots C Leo (range):",
+    "    Leo takes 3 wounds",
+    "  A Odo shoots C Ned (range):",
+    "    No wounds dealt",
+    "  A Ada vs C Sam (melee):",
+    "    Ada takes 8 wounds (1 models killed)",
+    "    >>> A Ada ELIMINATED <<<",
+    "  Objectives:",
+    "    O1 (7,10): Red",
+    "    O2 (14,9): Red",
+    "    O3 (21,10): Red",
+    "  Score: Blue 5 - Red 70",
+    "",
+    "--- Turn 6 ---",
+    "  C Sam (Red) moves (17,17)->(20,18)",
+    "  A Ben shoots C Leo (range):",
+    "    Leo takes 3 wounds (1 models killed)",
+    "  A Dan shoots C Leo (range):",
+    "    No wounds dealt",
+    "  A Odo vs C Sam (melee):",
+    "    Odo takes 10 wounds",
+    "  Objectives:",
+    "    O1 (7,10): Red",
+    "    O2 (14,9): Red",
+    "    O3 (21,10): Red",
+    "  Score: Blue 5 - Red 85",
+    "",
+    "--- Turn 7 ---",
+    "  A Ben shoots C Leo (range):",
+    "    No wounds dealt",
+    "  A Dan shoots C Leo (range):",
+    "    Leo takes 3 wounds",
+    "  A Odo vs C Sam (melee):",
+    "    Odo takes 8 wounds (1 models killed)",
+    "    >>> A Odo ELIMINATED <<<",
+    "  Objectives:",
+    "    O1 (7,10): Red",
+    "    O2 (14,9): Red",
+    "    O3 (21,10): Red",
+    "  Score: Blue 5 - Red 100",
+    "",
+    "--- Turn 8 ---",
+    "  C Sam (Red) moves (20,18)->(12,18)",
+    "  A Ben shoots C Leo (range):",
+    "    Leo takes 3 wounds (1 models killed)",
+    "  A Dan vs C Sam (melee):",
+    "    Dan takes 6 wounds",
+    "  Objectives:",
+    "    O1 (7,10): Red",
+    "    O2 (14,9): Red",
+    "    O3 (21,10): Red",
+    "  Score: Blue 5 - Red 115",
+    "",
+    "--- Turn 9 ---",
+    "  A Ben shoots C Leo (range):",
+    "    Leo takes 3 wounds (1 models killed)",
+    "  A Dan vs C Sam (melee):",
+    "    Dan takes 2 wounds",
+    "  Objectives:",
+    "    O1 (7,10): Red",
+    "    O2 (14,9): Red",
+    "    O3 (21,10): Red",
+    "  Score: Blue 5 - Red 130",
+    "",
+    "--- Turn 10 ---",
+    "  A Ben shoots C Leo (range):",
+    "    No wounds dealt",
+    "  A Dan vs C Sam (melee):",
+    "    Dan takes 8 wounds (1 models killed)",
+    "    >>> A Dan ELIMINATED <<<",
+    "  Objectives:",
+    "    O1 (7,10): Red",
+    "    O2 (14,9): Red",
+    "    O3 (21,10): Red",
+    "  Score: Blue 5 - Red 145",
+    ""
+  ],
+  "obj_control_final": [
+    "Red",
+    "Red",
+    "Red"
+  ],
+  "score": {
+    "blue": 5,
+    "red": 145
+  },
+  "score_by_turn": [
+    {
+      "blue": 5,
+      "red": 10
+    },
+    {
+      "blue": 5,
+      "red": 25
+    },
+    {
+      "blue": 5,
+      "red": 40
+    },
+    {
+      "blue": 5,
+      "red": 55
+    },
+    {
+      "blue": 5,
+      "red": 70
+    },
+    {
+      "blue": 5,
+      "red": 85
+    },
+    {
+      "blue": 5,
+      "red": 100
+    },
+    {
+      "blue": 5,
+      "red": 115
+    },
+    {
+      "blue": 5,
+      "red": 130
+    },
+    {
+      "blue": 5,
+      "red": 145
+    }
+  ],
+  "units": [
+    {
+      "damage_dealt": 39,
+      "damage_targets": {
+        "Finn": 15,
+        "Leo": 9,
+        "Pat": 15
+      },
+      "deploy_col": 6,
+      "deploy_row": 19,
+      "eliminated_turn": -1,
+      "kills": 2,
+      "models_remaining": 1,
+      "name": "Ben",
+      "objectives": [
+        "no",
+        "no",
+        "no"
+      ],
+      "player": 1,
+      "survived": true,
+      "uid": 0,
+      "unit_type": "artillery"
+    },
+    {
+      "damage_dealt": 18,
+      "damage_targets": {
+        "Finn": 6,
+        "Leo": 6,
+        "Pat": 6
+      },
+      "deploy_col": 10,
+      "deploy_row": 19,
+      "eliminated_turn": 10,
+      "kills": 0,
+      "models_remaining": 0,
+      "name": "Dan",
+      "objectives": [
+        "no",
+        "no",
+        "no"
+      ],
+      "player": 1,
+      "survived": false,
+      "uid": 1,
+      "unit_type": "artillery"
+    },
+    {
+      "damage_dealt": 21,
+      "damage_targets": {
+        "Hal": 9,
+        "Tom": 12
+      },
+      "deploy_col": 18,
+      "deploy_row": 19,
+      "eliminated_turn": 5,
+      "kills": 0,
+      "models_remaining": 0,
+      "name": "Ada",
+      "objectives": [
+        "no",
+        "no",
+        "no"
+      ],
+      "player": 1,
+      "survived": false,
+      "uid": 2,
+      "unit_type": "artillery"
+    },
+    {
+      "damage_dealt": 6,
+      "damage_targets": {
+        "Hal": 6
+      },
+      "deploy_col": 22,
+      "deploy_row": 19,
+      "eliminated_turn": 7,
+      "kills": 1,
+      "models_remaining": 0,
+      "name": "Odo",
+      "objectives": [
+        "no",
+        "no",
+        "no"
+      ],
+      "player": 1,
+      "survived": false,
+      "uid": 3,
+      "unit_type": "artillery"
+    },
+    {
+      "damage_dealt": 17,
+      "damage_targets": {
+        "Hal": 8,
+        "Ida": 4,
+        "Ned": 5
+      },
+      "deploy_col": 6,
+      "deploy_row": 17,
+      "eliminated_turn": 3,
+      "kills": 0,
+      "models_remaining": 0,
+      "name": "Kit",
+      "objectives": [
+        "won",
+        "no",
+        "no"
+      ],
+      "player": 1,
+      "survived": false,
+      "uid": 4,
+      "unit_type": "infantry"
+    },
+    {
+      "damage_dealt": 5,
+      "damage_targets": {
+        "Hal": 3,
+        "Ida": 1,
+        "Ned": 1
+      },
+      "deploy_col": 10,
+      "deploy_row": 17,
+      "eliminated_turn": 2,
+      "kills": 0,
+      "models_remaining": 0,
+      "name": "Gil",
+      "objectives": [
+        "no",
+        "no",
+        "no"
+      ],
+      "player": 1,
+      "survived": false,
+      "uid": 5,
+      "unit_type": "infantry"
+    },
+    {
+      "damage_dealt": 11,
+      "damage_targets": {
+        "Leo": 5,
+        "Pat": 6
+      },
+      "deploy_col": 18,
+      "deploy_row": 17,
+      "eliminated_turn": 2,
+      "kills": 0,
+      "models_remaining": 0,
+      "name": "Jay",
+      "objectives": [
+        "no",
+        "no",
+        "yes"
+      ],
+      "player": 1,
+      "survived": false,
+      "uid": 6,
+      "unit_type": "infantry"
+    },
+    {
+      "damage_dealt": 4,
+      "damage_targets": {
+        "Sam": 4
+      },
+      "deploy_col": 22,
+      "deploy_row": 17,
+      "eliminated_turn": 3,
+      "kills": 0,
+      "models_remaining": 0,
+      "name": "Rex",
+      "objectives": [
+        "no",
+        "no",
+        "yes"
+      ],
+      "player": 1,
+      "survived": false,
+      "uid": 7,
+      "unit_type": "infantry"
+    },
+    {
+      "damage_dealt": 16,
+      "damage_targets": {
+        "Gil": 8,
+        "Kit": 8
+      },
+      "deploy_col": 6,
+      "deploy_row": 1,
+      "eliminated_turn": 4,
+      "kills": 0,
+      "models_remaining": 0,
+      "name": "Hal",
+      "objectives": [
+        "won",
+        "no",
+        "no"
+      ],
+      "player": 2,
+      "survived": false,
+      "uid": 8,
+      "unit_type": "cavalry"
+    },
+    {
+      "damage_dealt": 64,
+      "damage_targets": {
+        "Ada": 12,
+        "Dan": 16,
+        "Odo": 18,
+        "Rex": 18
+      },
+      "deploy_col": 10,
+      "deploy_row": 1,
+      "eliminated_turn": -1,
+      "kills": 3,
+      "models_remaining": 5,
+      "name": "Sam",
+      "objectives": [
+        "no",
+        "won",
+        "no"
+      ],
+      "player": 2,
+      "survived": true,
+      "uid": 9,
+      "unit_type": "cavalry"
+    },
+    {
+      "damage_dealt": 14,
+      "damage_targets": {
+        "Gil": 8,
+        "Kit": 6
+      },
+      "deploy_col": 14,
+      "deploy_row": 1,
+      "eliminated_turn": -1,
+      "kills": 0,
+      "models_remaining": 4,
+      "name": "Ned",
+      "objectives": [
+        "won",
+        "no",
+        "no"
+      ],
+      "player": 2,
+      "survived": true,
+      "uid": 10,
+      "unit_type": "cavalry"
+    },
+    {
+      "damage_dealt": 14,
+      "damage_targets": {
+        "Jay": 10,
+        "Rex": 4
+      },
+      "deploy_col": 18,
+      "deploy_row": 1,
+      "eliminated_turn": 5,
+      "kills": 1,
+      "models_remaining": 0,
+      "name": "Pat",
+      "objectives": [
+        "no",
+        "no",
+        "won"
+      ],
+      "player": 2,
+      "survived": false,
+      "uid": 11,
+      "unit_type": "cavalry"
+    },
+    {
+      "damage_dealt": 18,
+      "damage_targets": {
+        "Jay": 18
+      },
+      "deploy_col": 22,
+      "deploy_row": 1,
+      "eliminated_turn": -1,
+      "kills": 1,
+      "models_remaining": 1,
+      "name": "Leo",
+      "objectives": [
+        "no",
+        "no",
+        "won"
+      ],
+      "player": 2,
+      "survived": true,
+      "uid": 12,
+      "unit_type": "cavalry"
+    },
+    {
+      "damage_dealt": 12,
+      "damage_targets": {
+        "Gil": 6,
+        "Kit": 6
+      },
+      "deploy_col": 8,
+      "deploy_row": 2,
+      "eliminated_turn": -1,
+      "kills": 2,
+      "models_remaining": 8,
+      "name": "Ida",
+      "objectives": [
+        "won",
+        "no",
+        "no"
+      ],
+      "player": 2,
+      "survived": true,
+      "uid": 13,
+      "unit_type": "infantry"
+    },
+    {
+      "damage_dealt": 0,
+      "damage_targets": {
+
+      },
+      "deploy_col": 16,
+      "deploy_row": 2,
+      "eliminated_turn": -1,
+      "kills": 0,
+      "models_remaining": 4,
+      "name": "Tom",
+      "objectives": [
+        "no",
+        "no",
+        "no"
+      ],
+      "player": 2,
+      "survived": true,
+      "uid": 14,
+      "unit_type": "infantry"
+    },
+    {
+      "damage_dealt": 0,
+      "damage_targets": {
+
+      },
+      "deploy_col": 20,
+      "deploy_row": 2,
+      "eliminated_turn": 2,
+      "kills": 0,
+      "models_remaining": 0,
+      "name": "Finn",
+      "objectives": [
+        "no",
+        "no",
+        "no"
+      ],
+      "player": 2,
+      "survived": false,
+      "uid": 15,
+      "unit_type": "infantry"
+    }
+  ],
+  "winner": "Red"
+}

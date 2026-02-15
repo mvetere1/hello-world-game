@@ -1,0 +1,38 @@
+﻿Godot Engine v4.6.stable.official.89cea1439 - https://godotengine.org
+
+Generated random army for Player 1: 1x cavalry, 1x archer, 3x deep_strike, 1x artillery, 2x infantry
+Generated random army for Player 2: 1x cavalry, 1x archer, 3x deep_strike, 1x artillery, 2x infantry
+Simulating 16 units (8 Blue, 8 Red)...
+Results written to: C:/Users/bigto/AppData/Roaming/Godot/app_userdata/Hex Move Demo/results.json
+Combat log written to: C:/Users/bigto/AppData/Roaming/Godot/app_userdata/Hex Move Demo/combat_log.txt
+
+========================================
+  BATTLE RESULTS
+========================================
+Winner: Red
+Score:  Blue 45  -  Red 95
+
+  Obj 1: Red
+  Obj 2: Red
+  Obj 3: Red
+
+--- BLUE ---
+  C Ben: DEAD (turn 3) | 8 dmg, 0 kills
+  A Dan: DEAD (turn 5) | 9 dmg, 0 kills
+  D Ada: DEAD (turn 5) | 0 dmg, 0 kills
+  D Odo: DEAD (turn 5) | 7 dmg, 0 kills
+  D Kit: DEAD (turn 5) | 8 dmg, 0 kills
+  A Gil: ALIVE (1 models) | 45 dmg, 3 kills
+  I Jay: DEAD (turn 8) | 16 dmg, 0 kills
+  I Rex: DEAD (turn 3) | 10 dmg, 0 kills
+
+--- RED ---
+  C Hal: ALIVE (1 models) | 24 dmg, 1 kills
+  A Sam: ALIVE (3 models) | 21 dmg, 1 kills
+  D Ned: ALIVE (1 models) | 2 dmg, 0 kills
+  D Pat: DEAD (turn 4) | 5 dmg, 0 kills
+  D Leo: ALIVE (5 models) | 6 dmg, 1 kills
+  A Ida: DEAD (turn 8) | 27 dmg, 2 kills
+  I Tom: ALIVE (8 models) | 19 dmg, 1 kills
+  I Finn: DEAD (turn 10) | 17 dmg, 1 kills
+

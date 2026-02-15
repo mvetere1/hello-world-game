@@ -1,0 +1,267 @@
+=== Deployment: 16 units (8 Blue, 8 Red) ===
+  C Ben (Blue) at (3,18)
+  C Dan (Blue) at (4,18)
+  I Ada (Blue) at (3,17)
+  I Odo (Blue) at (4,17)
+  C Kit (Blue) at (24,18)
+  C Gil (Blue) at (25,18)
+  I Jay (Blue) at (24,17)
+  I Rex (Blue) at (25,17)
+  I Hal (Red) at (12,2)
+  I Sam (Red) at (13,2)
+  I Ned (Red) at (14,2)
+  I Pat (Red) at (15,2)
+  C Leo (Red) at (12,1)
+  C Ida (Red) at (15,1)
+  A Tom (Red) at (13,0)
+  A Finn (Red) at (14,0)
+
+--- Turn 1 ---
+  C Ben (Blue) moves (3,18)->(6,11)
+  C Dan (Blue) moves (4,18)->(12,12)
+  I Ada (Blue) moves (3,17)->(8,14)
+  I Odo (Blue) moves (4,17)->(8,13)
+  C Kit (Blue) moves (24,18)->(21,10)
+  C Gil (Blue) moves (25,18)->(16,13)
+  I Jay (Blue) moves (24,17)->(20,13)
+  I Rex (Blue) moves (25,17)->(20,14)
+  I Hal (Red) moves (12,2)->(13,7)
+  I Sam (Red) moves (13,2)->(9,6)
+  I Ned (Red) moves (14,2)->(11,6)
+  I Pat (Red) moves (15,2)->(19,6)
+  C Leo (Red) moves (12,1)->(8,9)
+  C Ida (Red) moves (15,1)->(19,9)
+  A Tom shoots I Rex (range):
+    Rex takes 3 wounds (1 models killed)
+  A Finn shoots I Ada (range):
+    Ada takes 6 wounds (3 models killed)
+  C Kit vs C Ida (melee):
+    Kit takes 4 wounds
+    Ida takes 6 wounds (1 models killed)
+  Objectives:
+    O1 (7,10): Neutral
+    O2 (14,9): Red
+    O3 (21,10): Blue
+  Score: Blue 5 - Red 5
+
+--- Turn 2 ---
+  C Ben (Blue) moves (6,11)->(7,10)
+  C Dan (Blue) moves (12,12)->(12,9)
+  I Ada (Blue) moves (8,14)->(7,10)
+  I Odo (Blue) moves (8,13)->(13,9)
+  C Gil (Blue) moves (16,13)->(18,11)
+  I Jay (Blue) moves (20,13)->(21,10)
+  I Rex (Blue) moves (20,14)->(20,11)
+  I Sam (Red) moves (9,6)->(9,9)
+  I Ned (Red) moves (11,6)->(12,7)
+  I Pat (Red) moves (19,6)->(15,8)
+  A Tom shoots C Kit (range):
+    Kit takes 3 wounds (1 models killed)
+  A Finn shoots C Ben (range):
+    Ben takes 6 wounds (1 models killed)
+  C Ben vs I Sam (melee):
+    Ben takes 4 wounds (1 models killed)
+    Sam takes 2 wounds (1 models killed)
+  C Dan vs I Hal (melee):
+    Dan takes 2 wounds
+    Hal takes 2 wounds (1 models killed)
+  I Ada vs I Sam (melee):
+    Ada takes 4 wounds (2 models killed)
+    Sam takes 4 wounds (2 models killed)
+  I Odo vs I Hal (melee):
+    Odo takes 7 wounds (3 models killed)
+    Hal takes 7 wounds (3 models killed)
+  C Kit vs C Ida (melee):
+    Ida takes 2 wounds
+  C Gil vs C Ida (melee):
+    Gil takes 2 wounds
+    Ida takes 2 wounds (1 models killed)
+  I Jay vs C Ida (melee):
+    Jay takes 2 wounds (1 models killed)
+    Ida takes 6 wounds (1 models killed)
+  I Rex vs C Ida (melee):
+    Rex takes 2 wounds (1 models killed)
+    Ida takes 6 wounds (1 models killed)
+  I Ned vs C Dan (melee):
+    Ned takes 2 wounds (1 models killed)
+    Dan takes 6 wounds (1 models killed)
+  I Pat vs I Odo (melee):
+    Pat takes 4 wounds (2 models killed)
+    Odo takes 5 wounds (3 models killed)
+  C Leo vs C Ben (melee):
+    Leo takes 2 wounds
+    Ben takes 6 wounds (1 models killed)
+  Objectives:
+    O1 (7,10): Red
+    O2 (14,9): Red
+    O3 (21,10): Blue
+  Score: Blue 10 - Red 15
+
+--- Turn 3 ---
+  A Tom shoots C Kit (range):
+    Kit takes 6 wounds (1 models killed)
+  A Finn shoots C Ben (range):
+    No wounds dealt
+  C Ben vs I Sam (melee):
+    Ben takes 3 wounds
+  C Dan vs I Hal (melee):
+    Dan takes 1 wounds
+    Hal takes 10 wounds (5 models killed)
+  I Ada vs I Sam (melee):
+    Ada takes 4 wounds (2 models killed)
+    Sam takes 1 wounds
+  I Odo vs I Hal (melee):
+    Hal takes 5 wounds (1 models killed)
+    >>> I Hal ELIMINATED <<<
+  C Kit vs C Ida (melee):
+    Ida takes 2 wounds
+  C Gil vs C Ida (melee):
+    Gil takes 2 wounds
+    Ida takes 2 wounds (1 models killed)
+    >>> C Ida ELIMINATED <<<
+  I Ned vs C Dan (melee):
+    Ned takes 4 wounds (2 models killed)
+    Dan takes 3 wounds (1 models killed)
+  I Pat vs I Odo (melee):
+    Pat takes 3 wounds (1 models killed)
+    Odo takes 5 wounds (2 models killed)
+  C Leo vs C Ben (melee):
+    Leo takes 2 wounds
+    Ben takes 4 wounds (1 models killed)
+  Objectives:
+    O1 (7,10): Red
+    O2 (14,9): Red
+    O3 (21,10): Blue
+  Score: Blue 15 - Red 25
+
+--- Turn 4 ---
+  C Gil (Blue) moves (18,11)->(16,10)
+  I Rex (Blue) moves (20,11)->(21,10)
+  A Tom shoots C Kit (range):
+    Kit takes 6 wounds (1 models killed)
+  A Finn shoots C Ben (range):
+    No wounds dealt
+  C Ben vs I Sam (melee):
+    Ben takes 4 wounds (1 models killed)
+    >>> C Ben ELIMINATED <<<
+  C Dan vs I Ned (melee):
+    No wounds dealt
+  I Ada vs I Sam (melee):
+    Ada takes 4 wounds (2 models killed)
+    Sam takes 3 wounds (2 models killed)
+  I Odo vs I Pat (melee):
+    Odo takes 1 wounds (1 models killed)
+  C Gil vs I Pat (melee):
+    Gil takes 5 wounds (1 models killed)
+  C Leo vs I Ada (melee):
+    Leo takes 1 wounds (1 models killed)
+    Ada takes 2 wounds (1 models killed)
+    >>> I Ada ELIMINATED <<<
+  Objectives:
+    O1 (7,10): Red
+    O2 (14,9): Blue
+    O3 (21,10): Blue
+  Score: Blue 25 - Red 30
+
+--- Turn 5 ---
+  I Sam (Red) moves (9,9)->(7,10)
+  C Leo (Red) moves (8,9)->(10,9)
+  A Tom shoots C Kit (range):
+    Kit takes 3 wounds (1 models killed)
+  A Finn shoots C Kit (range):
+    Kit takes 3 wounds (1 models killed)
+    >>> C Kit ELIMINATED <<<
+  C Dan vs I Ned (melee):
+    Dan takes 5 wounds (1 models killed)
+    Ned takes 2 wounds (1 models killed)
+  I Odo vs I Pat (melee):
+    Odo takes 4 wounds (1 models killed)
+    Pat takes 1 wounds (1 models killed)
+    >>> I Odo ELIMINATED <<<
+  C Gil vs I Pat (melee):
+    Gil takes 6 wounds (2 models killed)
+    Pat takes 10 wounds (5 models killed)
+  C Leo vs C Dan (melee):
+    Dan takes 6 wounds (1 models killed)
+  Objectives:
+    O1 (7,10): Red
+    O2 (14,9): Blue
+    O3 (21,10): Blue
+  Score: Blue 35 - Red 35
+
+--- Turn 6 ---
+  A Tom shoots I Jay (range):
+    Jay takes 9 wounds (4 models killed)
+  A Finn shoots I Jay (range):
+    No wounds dealt
+  C Dan vs I Ned (melee):
+    Dan takes 2 wounds (1 models killed)
+    >>> C Dan ELIMINATED <<<
+  C Gil vs I Pat (melee):
+    Pat takes 4 wounds (1 models killed)
+    >>> I Pat ELIMINATED <<<
+  Objectives:
+    O1 (7,10): Red
+    O2 (14,9): Blue
+    O3 (21,10): Blue
+  Score: Blue 45 - Red 40
+
+--- Turn 7 ---
+  C Gil (Blue) moves (16,10)->(13,8)
+  C Leo (Red) moves (10,9)->(11,9)
+  A Tom shoots I Jay (range):
+    Jay takes 6 wounds (3 models killed)
+  A Finn shoots I Jay (range):
+    Jay takes 6 wounds (2 models killed)
+    >>> I Jay ELIMINATED <<<
+  C Gil vs I Ned (melee):
+    Gil takes 2 wounds
+    Ned takes 6 wounds (3 models killed)
+  C Leo vs C Gil (melee):
+    Leo takes 2 wounds
+  Objectives:
+    O1 (7,10): Red
+    O2 (14,9): Blue
+    O3 (21,10): Blue
+  Score: Blue 55 - Red 45
+
+--- Turn 8 ---
+  A Tom shoots I Rex (range):
+    Rex takes 9 wounds (5 models killed)
+  A Finn shoots I Rex (range):
+    Rex takes 3 wounds (1 models killed)
+  C Gil vs I Ned (melee):
+    Gil takes 1 wounds
+    Ned takes 4 wounds (2 models killed)
+  C Leo vs C Gil (melee):
+    Gil takes 6 wounds (1 models killed)
+  Objectives:
+    O1 (7,10): Red
+    O2 (14,9): Blue
+    O3 (21,10): Blue
+  Score: Blue 65 - Red 50
+
+--- Turn 9 ---
+  A Tom shoots I Rex (range):
+    Rex takes 3 wounds (2 models killed)
+    >>> I Rex ELIMINATED <<<
+  A Finn shoots C Gil (range):
+    Gil takes 3 wounds (1 models killed)
+    >>> C Gil ELIMINATED <<<
+  Objectives:
+    O1 (7,10): Red
+    O2 (14,9): Blue
+    O3 (21,10): Blue
+  Score: Blue 75 - Red 55
+
+--- Turn 10 ---
+  I Ned (Red) moves (12,7)->(14,9)
+  C Leo (Red) moves (11,9)->(21,10)
+  A Tom (Red) moves (13,0)->(13,1)
+  A Finn (Red) moves (14,0)->(14,1)
+  Objectives:
+    O1 (7,10): Red
+    O2 (14,9): Red
+    O3 (21,10): Red
+  Score: Blue 75 - Red 70
+
