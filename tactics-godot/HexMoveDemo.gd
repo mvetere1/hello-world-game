@@ -196,35 +196,42 @@ func hex_dist(c1: int, r1: int, c2: int, r2: int) -> int:
 # ============================================================================
 
 var astar := AStar2D.new()
+var _astar_built := false
 
-func build_astar(blocked: Dictionary = {}):
+func _build_astar_base():
 	astar.clear()
+	astar.reserve_space(COLS * ROWS)
+	for r in ROWS:
+		for c in COLS:
+			astar.add_point(hex_id(c, r), Vector2(c, r))
 	for r in ROWS:
 		for c in COLS:
 			var id = hex_id(c, r)
-			if blocked.has(id):
-				continue
-			astar.add_point(id, Vector2(c, r))
-	for r in ROWS:
-		for c in COLS:
-			var id = hex_id(c, r)
-			if not astar.has_point(id):
-				continue
 			for nb in hex_neighbors(c, r):
 				var nb_id = hex_id(nb.x, nb.y)
-				if astar.has_point(nb_id) and not astar.are_points_connected(id, nb_id):
+				if not astar.are_points_connected(id, nb_id):
 					astar.connect_points(id, nb_id)
+	_astar_built = true
 
 func find_path(sc: int, sr: int, gc: int, gr: int, blocked: Dictionary = {}) -> Array[Vector2i]:
-	build_astar(blocked)
+	if not _astar_built:
+		_build_astar_base()
+	# Disable blocked points instead of rebuilding the graph
+	var disabled: Array[int] = []
+	for bid in blocked:
+		if astar.has_point(bid):
+			astar.set_point_disabled(bid, true)
+			disabled.append(bid)
 	var sid = hex_id(sc, sr)
 	var gid = hex_id(gc, gr)
-	if not astar.has_point(sid) or not astar.has_point(gid):
-		return []
-	var id_path = astar.get_id_path(sid, gid)
 	var result: Array[Vector2i] = []
-	for id in id_path.slice(1):
-		result.append(id_to_hex(id))
+	if astar.has_point(sid) and not astar.is_point_disabled(sid) and astar.has_point(gid) and not astar.is_point_disabled(gid):
+		var id_path = astar.get_id_path(sid, gid)
+		for id in id_path.slice(1):
+			result.append(id_to_hex(id))
+	# Re-enable all disabled points for next call
+	for bid in disabled:
+		astar.set_point_disabled(bid, false)
 	return result
 
 # ============================================================================
@@ -415,8 +422,8 @@ func _pick_trail_target(uid: int, units: Array, timelines: Array, formations_tim
 					best = {"hex": fh, "enemy_uid": eid, "trail_turn": ti}
 	return best
 
-func _find_trail_uid_at_hex(hex: Vector2i, sim: Dictionary) -> int:
-	# Returns UID of the first unit whose trail (formation hexes across all turns) contains this hex
+func _build_trail_hex_cache(sim: Dictionary) -> Dictionary:
+	var cache := {}
 	var formations_tl: Array = sim.get("formations_timeline", [])
 	var final_units: Array = sim.get("units", [])
 	for uid in formations_tl.size():
@@ -426,9 +433,18 @@ func _find_trail_uid_at_hex(hex: Vector2i, sim: Dictionary) -> int:
 		var max_ti = mini(alive_until + 1, ftl.size() - 1)
 		for ti in (max_ti + 1):
 			var form: Array = ftl[ti]
-			if hex in form:
-				return uid
-	return -1
+			for fh in form:
+				if fh == Vector2i(-1, -1): continue
+				var hid = hex_id(fh.x, fh.y)
+				if not cache.has(hid):
+					cache[hid] = uid
+	return cache
+
+func _find_trail_uid_at_hex(hex: Vector2i, sim: Dictionary) -> int:
+	if not is_same(sim, _trail_hex_cache_ref):
+		_trail_hex_cache = _build_trail_hex_cache(sim)
+		_trail_hex_cache_ref = sim
+	return _trail_hex_cache.get(hex_id(hex.x, hex.y), -1)
 
 func _roll_combat(attacker: Dictionary, defender: Dictionary, rng: RandomNumberGenerator) -> int:
 	# Returns total wounds dealt to defender (uses ranged profile)
@@ -1173,6 +1189,8 @@ var shift_summary_diff := {}  # snapshot of preview_diff at placement time
 var shift_old_sim := {}       # snapshot of confirmed_sim before placement
 var hover_hex     := Vector2i(-1, -1)
 var hover_trail_uid := -1  # UID of unit whose trail is under cursor (-1 = none)
+var _trail_hex_cache := {}  # hex_id -> uid, rebuilt when sim changes
+var _trail_hex_cache_ref: Dictionary  # reference to sim the cache was built for
 var _mouse_pos := Vector2.ZERO  # last known mouse position for tooltip placement
 var deploy_heatmap := {}  # hex_id -> vp delta for active player
 var _heatmap_queue: Array = []  # hex coords still to compute
@@ -2297,9 +2315,18 @@ func _draw():
 
 	_obj_control = _compute_obj_control(draw_sim)
 
-	# Top-down: no z-ordering needed, just draw row by row
-	for r in ROWS:
-		for c in COLS:
+	# Viewport culling: only draw hexes visible on screen
+	var vp_rect = get_viewport_rect().size
+	var world_min = -cam_offset / cam_zoom
+	var world_max = (vp_rect - cam_offset) / cam_zoom
+	var hex_w = HEX_SIZE * 1.5
+	var hex_h = HEX_SIZE * sqrt(3.0)
+	var c_min = clampi(int(world_min.x / hex_w) - 2, 0, COLS - 1)
+	var c_max = clampi(int(world_max.x / hex_w) + 2, 0, COLS - 1)
+	var r_min = clampi(int(world_min.y / hex_h) - 2, 0, ROWS - 1)
+	var r_max = clampi(int(world_max.y / hex_h) + 2, 0, ROWS - 1)
+	for r in range(r_min, r_max + 1):
+		for c in range(c_min, c_max + 1):
 			_draw_tile(c, r)
 
 	# Dark fog overlay for CHANGED mode — dims tiles so only changes pop
