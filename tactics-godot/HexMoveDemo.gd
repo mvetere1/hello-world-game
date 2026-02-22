@@ -1,71 +1,95 @@
 extends Node2D
 
 # ============================================================================
-# CONFIGURATION
+# RESOURCE REFERENCES  (edit .tres files in Godot Inspector to tweak gameplay)
 # ============================================================================
 
-const COLS          = 56
-const ROWS          = 40
-const HEX_SIZE      = 20.0   # circumradius of hex (center to corner)
-
-const UNITS_PER_SIDE = 8
-const TURNS          = 10
-const COMBAT_RANGE   = 2
-const TURN_DURATION  = 0.8   # seconds per animation frame
-const OC_RADIUS      = 4     # objective control radius in hexes
-const CAVALRY_AGGRO  = 16    # cavalry hunt range in hexes
-
-# Deployment zones
-const P1_DEPLOY_ROWS_MIN = 32
-const P1_DEPLOY_ROWS_MAX = 39
-const P2_DEPLOY_ROWS_MIN = 0
-const P2_DEPLOY_ROWS_MAX = 7
-const DEPLOY_C_MIN       = 4
-const DEPLOY_C_MAX       = 51
-
-const OBJECTIVES = [
-	Vector2i(14, 20),
-	Vector2i(28, 18),
-	Vector2i(42, 20),
+var _grid: GridConfig = preload("res://resources/config/grid_config.tres")
+var _battle: BattleConfig = preload("res://resources/config/battle_config.tres")
+var _unit_resources: Array = [
+	preload("res://resources/units/infantry.tres"),
+	preload("res://resources/units/cavalry.tres"),
+	preload("res://resources/units/artillery.tres"),
+	preload("res://resources/units/deep_strike.tres"),
+	preload("res://resources/units/archer.tres"),
+]
+var _terrain_res_list: Array = [
+	preload("res://resources/terrain/grass.tres"),
+	preload("res://resources/terrain/forest.tres"),
+	preload("res://resources/terrain/water.tres"),
 ]
 
-const INFANTRY = {
-	"models": 10, "hp": 2, "move": 10,
-	"attacks": 2, "hit": 3, "wound": 3, "rend": 1, "armor": 4, "damage": 1,
-	"oc": 1,
-}
-const CAVALRY = {
-	"models": 6, "hp": 3, "move": 24,
-	"attacks": 2, "hit": 4, "wound": 3, "rend": 2, "armor": 4, "damage": 2,
-	"oc": 1,
-}
-const ARTILLERY = {
-	"models": 1, "hp": 12, "move": 8, "footprint": 5,
-	"attacks": 4, "hit": 4, "wound": 2, "rend": 1, "damage": 3,
-	"range": 40, "targets_furthest": true,
-	"melee_attacks": 1, "melee_hit": 5, "melee_wound": 4, "melee_rend": 0, "melee_damage": 1,
-	"armor": 4, "oc": 1,
-}
-const DEEP_STRIKE = {
-	"models": 8, "hp": 3, "move": 16,
-	"attacks": 2, "hit": 4, "wound": 4, "rend": 0, "damage": 1,
-	"armor": 5, "oc": 1,
-}
-const ARCHER = {
-	"models": 8, "hp": 2, "move": 16,
-	"attacks": 2, "hit": 3, "wound": 2, "rend": 0, "damage": 1,
-	"range": 24,
-	"melee_attacks": 1, "melee_hit": 5, "melee_wound": 5, "melee_rend": 0, "melee_damage": 1,
-	"armor": 5, "oc": 1,
-	"retreat_move": 16,
-}
-const UNIT_TYPES = ["infantry", "cavalry", "artillery", "deep_strike", "archer"]
+# Cached legacy dicts — populated in _init() from resources above
+var _legacy_stats: Dictionary = {}
+var _unit_type_keys: Array[String] = []
 
-const UNIT_NAMES = [
-	"Ada", "Ben", "Cal", "Dan", "Eve", "Finn", "Gil", "Hal",
-	"Ida", "Jay", "Kit", "Leo", "Max", "Ned", "Odo", "Pat",
-	"Rex", "Sam", "Tom", "Val",
-]
+# Terrain system — terrain_key -> TerrainType resource, hex_id -> terrain_key
+var _terrain_resources: Dictionary = {}
+var _terrain_data: Dictionary = {}
+var _default_terrain_key: String = "grass"
+
+func _init():
+	for res in _unit_resources:
+		_legacy_stats[res.unit_type_key] = res.to_legacy_dict()
+		_unit_type_keys.append(res.unit_type_key)
+	for tres in _terrain_res_list:
+		_terrain_resources[tres.terrain_key] = tres
+
+# ============================================================================
+# CONFIGURATION  (backed by GridConfig + BattleConfig resources)
+# ============================================================================
+
+# Grid config — edit resources/config/grid_config.tres
+var COLS: int:
+	get: return _grid.cols
+var ROWS: int:
+	get: return _grid.rows
+var HEX_SIZE: float:
+	get: return _grid.hex_size
+var P1_DEPLOY_ROWS_MIN: int:
+	get: return _grid.p1_deploy_rows_min
+var P1_DEPLOY_ROWS_MAX: int:
+	get: return _grid.p1_deploy_rows_max
+var P2_DEPLOY_ROWS_MIN: int:
+	get: return _grid.p2_deploy_rows_min
+var P2_DEPLOY_ROWS_MAX: int:
+	get: return _grid.p2_deploy_rows_max
+var DEPLOY_C_MIN: int:
+	get: return _grid.deploy_col_min
+var DEPLOY_C_MAX: int:
+	get: return _grid.deploy_col_max
+var OBJECTIVES: Array:
+	get: return _grid.objectives
+
+# Battle config — edit resources/config/battle_config.tres
+var UNITS_PER_SIDE: int:
+	get: return _battle.units_per_side
+var TURNS: int:
+	get: return _battle.turns
+var COMBAT_RANGE: int:
+	get: return _battle.combat_range
+var TURN_DURATION: float:
+	get: return _battle.turn_duration
+var OC_RADIUS: int:
+	get: return _battle.oc_radius
+var CAVALRY_AGGRO: int:
+	get: return _battle.cavalry_aggro
+var UNIT_NAMES: Array:
+	get: return _battle.unit_names
+
+# Unit stat dicts — backed by UnitStats resources in resources/units/
+var INFANTRY: Dictionary:
+	get: return _legacy_stats.get("infantry", {})
+var CAVALRY: Dictionary:
+	get: return _legacy_stats.get("cavalry", {})
+var ARTILLERY: Dictionary:
+	get: return _legacy_stats.get("artillery", {})
+var DEEP_STRIKE: Dictionary:
+	get: return _legacy_stats.get("deep_strike", {})
+var ARCHER: Dictionary:
+	get: return _legacy_stats.get("archer", {})
+var UNIT_TYPES: Array:
+	get: return _unit_type_keys
 
 # ---- colors ------------------------------------------------------------------
 const C_BG       = Color(0.07, 0.10, 0.18)   # dark navy
@@ -78,20 +102,44 @@ const C_BANNER   = Color(0.85, 0.78, 0.32)
 const C_SWORD    = Color(0.80, 0.80, 0.85)
 
 func _get_stats(unit_type: String) -> Dictionary:
-	match unit_type:
-		"cavalry": return CAVALRY
-		"artillery": return ARTILLERY
-		"deep_strike": return DEEP_STRIKE
-		"archer": return ARCHER
-		_: return INFANTRY
+	return _legacy_stats.get(unit_type, _legacy_stats.get("infantry", {}))
+
+func _get_unit_res(unit_type: String) -> UnitStats:
+	for res in _unit_resources:
+		if res.unit_type_key == unit_type:
+			return res
+	return _unit_resources[0]
 
 func _unit_prefix(unit_type: String) -> String:
-	match unit_type:
-		"cavalry": return "C"
-		"artillery": return "A"
-		"deep_strike": return "D"
-		"archer": return "W"
-		_: return "I"
+	return _get_unit_res(unit_type).prefix
+
+# ---- terrain query -----------------------------------------------------------
+
+func _get_terrain_at(col: int, row: int) -> TerrainType:
+	var key = _terrain_data.get(hex_id(col, row), _default_terrain_key)
+	return _terrain_resources.get(key, _terrain_resources.get("grass"))
+
+func _is_hex_passable(col: int, row: int) -> bool:
+	return _get_terrain_at(col, row).passable
+
+func _load_terrain_data():
+	var path = "res://terrain_data.json"
+	if not FileAccess.file_exists(path):
+		return  # all grass by default
+	var f = FileAccess.open(path, FileAccess.READ)
+	var json = JSON.new()
+	if json.parse(f.get_as_text()) == OK and typeof(json.data) == TYPE_DICTIONARY:
+		for hex_id_str in json.data:
+			_terrain_data[int(hex_id_str)] = json.data[hex_id_str]
+	f.close()
+
+func _load_terrain_sprites():
+	var base = ProjectSettings.globalize_path("res://terrain/elements/")
+	var mapping = {"forest": "trees.png", "water": "pond.png"}
+	for key in mapping:
+		var tex = _load_png_as_texture(base + mapping[key])
+		if tex:
+			_terrain_sprites[key] = tex
 
 # ============================================================================
 # FLAT-TOP TOP-DOWN HEX MATH  (odd-q offset coords)
@@ -107,14 +155,13 @@ var tile_tex: Texture2D = null   # single flat-top hex tile
 
 # Sprite sheets: unit_sprites[player][unit_type] = {"idle": Texture2D, "run": Texture2D}
 var unit_sprites := {}
-# Frame counts per sprite sheet (width / frame_height)
-const SPRITE_FRAMES := {
-	"infantry": {"idle": 8, "run": 6, "size": 192},
-	"cavalry":  {"idle": 12, "run": 6, "size": 320},
-	"artillery": {"idle": 6, "run": 4, "size": 192},
-	"deep_strike": {"idle": 8, "run": 6, "size": 192},
-	"archer":   {"idle": 6, "run": 4, "size": 192},
-}
+# Frame counts per sprite sheet — derived from UnitStats resources
+var SPRITE_FRAMES: Dictionary:
+	get:
+		var d := {}
+		for res in _unit_resources:
+			d[res.unit_type_key] = {"idle": res.idle_frames, "run": res.run_frames, "size": res.sprite_size}
+		return d
 
 func hex_to_pixel(col: int, row: int) -> Vector2:
 	var x = HEX_SIZE * 1.5 * col
@@ -149,278 +196,33 @@ func hex_corners(center: Vector2) -> PackedVector2Array:
 		pts.append(center + Vector2(cos(angle), sin(angle)) * HEX_SIZE * cam_zoom)
 	return pts
 
-func is_valid_hex(col: int, row: int) -> bool:
-	return col >= 0 and col < COLS and row >= 0 and row < ROWS
-
-func hex_id(col: int, row: int) -> int:
-	return col * 1000 + row
-
-func id_to_hex(id: int) -> Vector2i:
-	return Vector2i(id / 1000, id % 1000)
-
-# Flat-top odd-q offset neighbors (depend on whether col is even or odd)
-const FLAT_DIRS_EVEN = [
-	Vector2i( 1,  0), Vector2i(-1,  0),
-	Vector2i( 0,  1), Vector2i( 0, -1),
-	Vector2i( 1, -1), Vector2i(-1, -1),
-]
-const FLAT_DIRS_ODD = [
-	Vector2i( 1,  0), Vector2i(-1,  0),
-	Vector2i( 0,  1), Vector2i( 0, -1),
-	Vector2i( 1,  1), Vector2i(-1,  1),
-]
-
-func hex_neighbors(col: int, row: int) -> Array[Vector2i]:
-	var dirs = FLAT_DIRS_ODD if (col & 1) else FLAT_DIRS_EVEN
-	var result: Array[Vector2i] = []
-	for d in dirs:
-		var nc = col + d.x
-		var nr = row + d.y
-		if is_valid_hex(nc, nr):
-			result.append(Vector2i(nc, nr))
-	return result
-
-func _offset_to_cube(col: int, row: int) -> Vector3i:
-	# odd-q offset → cube
-	var q = col
-	var r = row - (col - (col & 1)) / 2
-	return Vector3i(q, r, -q - r)
-
-func hex_dist(c1: int, r1: int, c2: int, r2: int) -> int:
-	var a = _offset_to_cube(c1, r1)
-	var b = _offset_to_cube(c2, r2)
-	return (abs(a.x - b.x) + abs(a.y - b.y) + abs(a.z - b.z)) / 2
+# --- Delegated to HexMath static class (scripts/hex_math.gd) ---
+func is_valid_hex(col: int, row: int) -> bool: return HexMath.is_valid_hex(col, row)
+func hex_id(col: int, row: int) -> int: return HexMath.hex_id(col, row)
+func id_to_hex(id: int) -> Vector2i: return HexMath.id_to_hex(id)
+func hex_neighbors(col: int, row: int) -> Array[Vector2i]: return HexMath.hex_neighbors(col, row)
+func hex_dist(c1: int, r1: int, c2: int, r2: int) -> int: return HexMath.hex_dist(c1, r1, c2, r2)
 
 # ============================================================================
-# A* PATHFINDING
+# COMBAT SIMULATOR  (delegated to scripts/combat_simulator.gd)
 # ============================================================================
 
-var astar := AStar2D.new()
-var _astar_built := false
+var _sim: CombatSimulator
 
-func _build_astar_base():
-	astar.clear()
-	astar.reserve_space(COLS * ROWS)
-	for r in ROWS:
-		for c in COLS:
-			astar.add_point(hex_id(c, r), Vector2(c, r))
-	for r in ROWS:
-		for c in COLS:
-			var id = hex_id(c, r)
-			for nb in hex_neighbors(c, r):
-				var nb_id = hex_id(nb.x, nb.y)
-				if not astar.are_points_connected(id, nb_id):
-					astar.connect_points(id, nb_id)
-	_astar_built = true
-
-func find_path(sc: int, sr: int, gc: int, gr: int, blocked: Dictionary = {}) -> Array[Vector2i]:
-	if not _astar_built:
-		_build_astar_base()
-	# Disable blocked points instead of rebuilding the graph
-	var disabled: Array[int] = []
-	for bid in blocked:
-		if astar.has_point(bid):
-			astar.set_point_disabled(bid, true)
-			disabled.append(bid)
-	var sid = hex_id(sc, sr)
-	var gid = hex_id(gc, gr)
-	var result: Array[Vector2i] = []
-	if astar.has_point(sid) and not astar.is_point_disabled(sid) and astar.has_point(gid) and not astar.is_point_disabled(gid):
-		var id_path = astar.get_id_path(sid, gid)
-		for id in id_path.slice(1):
-			result.append(id_to_hex(id))
-	# Re-enable all disabled points for next call
-	for bid in disabled:
-		astar.set_point_disabled(bid, false)
-	return result
-
-# ============================================================================
-# MULTI-HEX FORMATION HELPERS
-# ============================================================================
-
-func _compute_footprint(unit_type: String, models: int) -> int:
-	var stats = _get_stats(unit_type)
-	if stats.has("footprint"):
-		return stats.footprint  # fixed footprint (e.g. artillery)
-	return ceili(float(models) / 2.0)
-
-func compute_compact_cluster(anchor: Vector2i, size: int, blocked: Dictionary) -> Array[Vector2i]:
-	if size <= 0:
-		return []
-	var result: Array[Vector2i] = [anchor]
-	if size == 1:
-		return result
-	var used := {hex_id(anchor.x, anchor.y): true}
-	var frontier: Array[Vector2i] = [anchor]
-	while result.size() < size and not frontier.is_empty():
-		var candidates: Array[Vector2i] = []
-		for fh in frontier:
-			for nb in hex_neighbors(fh.x, fh.y):
-				var nid = hex_id(nb.x, nb.y)
-				if used.has(nid): continue
-				if blocked.has(nid): continue
-				if not is_valid_hex(nb.x, nb.y): continue
-				used[nid] = true
-				candidates.append(nb)
-		candidates.sort_custom(func(a, b):
-			return hex_dist(a.x, a.y, anchor.x, anchor.y) < hex_dist(b.x, b.y, anchor.x, anchor.y)
-		)
-		var next_frontier: Array[Vector2i] = []
-		for c in candidates:
-			if result.size() >= size: break
-			result.append(c)
-			next_frontier.append(c)
-		frontier = next_frontier
-	return result
-
-func formation_dist(form_a: Array, form_b: Array) -> int:
-	var best := 999999
-	for ha in form_a:
-		for hb in form_b:
-			var d = hex_dist(ha.x, ha.y, hb.x, hb.y)
-			if d < best:
-				best = d
-				if d <= 1: return d
-	return best
-
-func formation_dist_to_hex(formation: Array, target: Vector2i) -> int:
-	var best := 999999
-	for fh in formation:
-		var d = hex_dist(fh.x, fh.y, target.x, target.y)
-		if d < best:
-			best = d
-			if d == 0: return 0
-	return best
+# --- Wrappers for deployment logic that uses simulator functions ---
+func find_path(sc: int, sr: int, gc: int, gr: int, blocked: Dictionary = {}) -> Array[Vector2i]: return _sim.find_path(sc, sr, gc, gr, blocked)
+func _compute_footprint(unit_type: String, models: int) -> int: return _sim.compute_footprint(unit_type, models)
+func compute_compact_cluster(anchor: Vector2i, size: int, blocked: Dictionary) -> Array[Vector2i]: return HexMath.compute_compact_cluster(anchor, size, blocked)
+func formation_dist(form_a: Array, form_b: Array) -> int: return HexMath.formation_dist(form_a, form_b)
+func formation_dist_to_hex(formation: Array, target: Vector2i) -> int: return HexMath.formation_dist_to_hex(formation, target)
 
 func _build_blocked_from_units(units: Array, exclude_uid: int, turn: int, exclude_goal: Vector2i = Vector2i(-999, -999)) -> Dictionary:
-	var blocked := {}
-	for i in units.size():
-		if i == exclude_uid or units[i].eliminated: continue
-		if units[i].start_turn > 0 and turn < units[i].start_turn: continue
-		var form: Array = units[i].get("formation", [])
-		if form.is_empty():
-			# Fallback: use single hex if formation not yet computed
-			blocked[hex_id(units[i].col, units[i].row)] = true
-		else:
-			for fh in form:
-				if fh == exclude_goal: continue
-				blocked[hex_id(fh.x, fh.y)] = true
-	return blocked
+	return _sim.build_blocked_from_units(units, exclude_uid, turn, exclude_goal)
 
-# ============================================================================
-# SIMULATION
-# ============================================================================
+func simulate(input_units: Array) -> Dictionary: return _sim.simulate(input_units)
+func _get_sim_stats(unit_type: String) -> Dictionary: return _sim.get_stats(unit_type)
 
-func _pick_target(uid: int, units: Array) -> Vector2i:
-	var u   = units[uid]
-	var u_form = u.get("formation", [Vector2i(u.col, u.row)])
-	var plr = u.player
-	var is_cav = u.unit_type == "cavalry"
-
-	# Cavalry: always hunt nearest enemy unless none within CAVALRY_AGGRO hexes
-	if is_cav:
-		var nearest_enemy := Vector2i(-1, -1)
-		var nearest_d     := 999999
-		for other in units:
-			if other.eliminated or other.player == plr: continue
-			if not other.get("arrived", true): continue
-			var o_form = other.get("formation", [Vector2i(other.col, other.row)])
-			var d = formation_dist(u_form, o_form)
-			if d < nearest_d:
-				nearest_d     = d
-				nearest_enemy = Vector2i(other.col, other.row)
-		if nearest_enemy.x >= 0 and nearest_d <= CAVALRY_AGGRO:
-			return nearest_enemy
-		# No enemies within CAVALRY_AGGRO — fall through to objective logic
-
-	# Compute objective control from current unit positions
-	var obj_ctrl_local: Array = []  # 0=neutral, 1=P1, 2=P2
-	for obj in OBJECTIVES:
-		var cnt1 = 0; var cnt2 = 0
-		for other in units:
-			if other.eliminated: continue
-			if not other.get("arrived", true): continue
-			var o_form = other.get("formation", [Vector2i(other.col, other.row)])
-			if formation_dist_to_hex(o_form, obj) <= OC_RADIUS:
-				if other.player == 1: cnt1 += 1
-				else:                  cnt2 += 1
-		if   cnt1 > cnt2: obj_ctrl_local.append(1)
-		elif cnt2 > cnt1: obj_ctrl_local.append(2)
-		else:             obj_ctrl_local.append(0)
-
-	var best_pos  := Vector2i(-1, -1)
-	var best_dist := 999999
-
-	for i in OBJECTIVES.size():
-		var ctrl = obj_ctrl_local[i]
-		var my_dist = formation_dist_to_hex(u_form, OBJECTIVES[i])
-		# If I'm personally holding this objective, stay here
-		if ctrl == plr and my_dist <= OC_RADIUS:
-			return OBJECTIVES[i]
-		if ctrl == plr:
-			continue  # friendly-held by someone else — skip
-		if my_dist < best_dist:
-			best_dist = my_dist
-			best_pos  = OBJECTIVES[i]
-
-	if best_pos.x >= 0:
-		return best_pos
-
-	# All friendly-held — advance to nearest enemy
-	var nearest_enemy := Vector2i(-1, -1)
-	var nearest_d     := 999999
-	for other in units:
-		if other.eliminated or other.player == plr: continue
-		if not other.get("arrived", true): continue
-		var o_form = other.get("formation", [Vector2i(other.col, other.row)])
-		var d = formation_dist(u_form, o_form)
-		if d < nearest_d:
-			nearest_d     = d
-			nearest_enemy = Vector2i(other.col, other.row)
-	if nearest_enemy.x >= 0:
-		return nearest_enemy
-	return Vector2i(u.col, u.row)  # nowhere to go
-
-func _nearest_enemy_in_range(uid: int, units: Array, range_val: int) -> int:
-	var u = units[uid]
-	var u_form = u.get("formation", [Vector2i(u.col, u.row)])
-	var best_eid = -1
-	var best_d   = range_val + 1
-	for eid in units.size():
-		if eid == uid: continue
-		var e = units[eid]
-		if e.eliminated or e.player == u.player: continue
-		if not e.get("arrived", true): continue  # deep strike not yet arrived
-		var e_form = e.get("formation", [Vector2i(e.col, e.row)])
-		var d = formation_dist(u_form, e_form)
-		if d <= range_val and d < best_d:
-			best_d   = d
-			best_eid = eid
-	return best_eid
-
-func _pick_trail_target(uid: int, units: Array, timelines: Array, formations_timeline: Array, turn: int) -> Dictionary:
-	# DS temporal disruption: find nearest enemy trail hex (any past turn, any enemy including dead)
-	# Returns {hex: Vector2i, enemy_uid: int, trail_turn: int} or empty dict
-	var u = units[uid]
-	var u_form = u.get("formation", [Vector2i(u.col, u.row)])
-	var best := {}
-	var best_d := 999999
-	for eid in units.size():
-		var e = units[eid]
-		if e.player == u.player: continue  # skip friendlies
-		if eid >= formations_timeline.size(): continue
-		var e_ftl: Array = formations_timeline[eid]
-		# Scan all past turn positions (index 0 = deploy, index t = after turn t-1)
-		var max_idx = mini(turn, e_ftl.size() - 1)  # up to but not including current turn
-		for ti in (max_idx + 1):
-			var form: Array = e_ftl[ti]
-			for fh in form:
-				if fh == Vector2i(-1, -1): continue
-				var d = formation_dist_to_hex(u_form, fh)
-				if d < best_d:
-					best_d = d
-					best = {"hex": fh, "enemy_uid": eid, "trail_turn": ti}
-	return best
+# --- Trail tooltip (stays in HexMoveDemo for hover access) ---
 
 func _build_trail_hex_cache(sim: Dictionary) -> Dictionary:
 	var cache := {}
@@ -445,717 +247,6 @@ func _find_trail_uid_at_hex(hex: Vector2i, sim: Dictionary) -> int:
 		_trail_hex_cache = _build_trail_hex_cache(sim)
 		_trail_hex_cache_ref = sim
 	return _trail_hex_cache.get(hex_id(hex.x, hex.y), -1)
-
-func _roll_combat(attacker: Dictionary, defender: Dictionary, rng: RandomNumberGenerator) -> int:
-	# Returns total wounds dealt to defender (uses ranged profile)
-	var stats = _get_stats(attacker.get("unit_type", "infantry"))
-	var def_stats = _get_stats(defender.get("unit_type", "infantry"))
-	var wounds = 0
-	for _i in attacker.models * stats.attacks:
-		if rng.randi_range(1, 6) >= stats.hit:
-			if rng.randi_range(1, 6) >= stats.wound:
-				var save_target = def_stats.get("armor", 7) + stats.rend
-				if rng.randi_range(1, 6) < save_target:
-					wounds += stats.damage
-	return wounds
-
-func _roll_melee(attacker: Dictionary, defender: Dictionary, rng: RandomNumberGenerator) -> int:
-	# Returns total wounds dealt in melee (uses melee profile for artillery/archer)
-	var stats = _get_stats(attacker.get("unit_type", "infantry"))
-	var def_stats = _get_stats(defender.get("unit_type", "infantry"))
-	var atk = stats.get("melee_attacks", stats.attacks)
-	var hit = stats.get("melee_hit", stats.hit)
-	var wnd = stats.get("melee_wound", stats.wound)
-	var rnd = stats.get("melee_rend", stats.rend)
-	var dmg = stats.get("melee_damage", stats.damage)
-	var wounds = 0
-	for _i in attacker.models * atk:
-		if rng.randi_range(1, 6) >= hit:
-			if rng.randi_range(1, 6) >= wnd:
-				var save_target = def_stats.get("armor", 7) + rnd
-				if rng.randi_range(1, 6) < save_target:
-					wounds += dmg
-	return wounds
-
-func _find_ranged_target(uid: int, units: Array, stats: Dictionary) -> int:
-	var u = units[uid]
-	var u_form = u.get("formation", [Vector2i(u.col, u.row)])
-	var range_val = stats.get("range", 0)
-	if range_val <= 0: return -1
-	var targets_furthest = stats.get("targets_furthest", false)
-	var best_eid = -1
-	var best_d = -1 if targets_furthest else range_val + 1
-	for eid in units.size():
-		if eid == uid: continue
-		var e = units[eid]
-		if e.eliminated or e.player == u.player: continue
-		if not e.get("arrived", true): continue  # deep strike not yet arrived
-		var e_form = e.get("formation", [Vector2i(e.col, e.row)])
-		var d = formation_dist(u_form, e_form)
-		if d > range_val: continue
-		if targets_furthest:
-			if d > best_d:
-				best_d = d
-				best_eid = eid
-		else:
-			if d < best_d:
-				best_d = d
-				best_eid = eid
-	return best_eid
-
-func _pick_archer_target(uid: int, units: Array) -> Vector2i:
-	var u = units[uid]
-	var u_form = u.get("formation", [Vector2i(u.col, u.row)])
-	# Find nearest enemy within archer range
-	var archer_range = ARCHER.range
-	var nearest_eid := -1
-	var nearest_d := 999
-	for eid in units.size():
-		if eid == uid: continue
-		var e = units[eid]
-		if e.eliminated or e.player == u.player: continue
-		if not e.get("arrived", true): continue  # deep strike not yet arrived
-		var e_form = e.get("formation", [Vector2i(e.col, e.row)])
-		var d = formation_dist(u_form, e_form)
-		if d <= archer_range and d < nearest_d:
-			nearest_d = d
-			nearest_eid = eid
-	if nearest_eid >= 0:
-		# Move toward enemy but maintain archer range distance
-		var e = units[nearest_eid]
-		if nearest_d >= archer_range:
-			return Vector2i(u.col, u.row)  # already at good range, stay
-		return Vector2i(e.col, e.row)  # move toward, step loop will stop per archer avoidance logic
-	# No enemy nearby — go to nearest objective
-	var best_obj := Vector2i(u.col, u.row)
-	var best_d2 := 999
-	for obj in OBJECTIVES:
-		var d = formation_dist_to_hex(u_form, obj)
-		if d < best_d2:
-			best_d2 = d
-			best_obj = obj
-	return best_obj
-
-func simulate(input_units: Array) -> Dictionary:
-	# input_units: Array of {player, col, row, unit_type}
-	var units: Array = []
-	for i in input_units.size():
-		var src = input_units[i]
-		var stats = _get_stats(src.get("unit_type", "infantry"))
-		var st = src.get("start_turn", 0)  # 0 = available from turn 0
-		units.append({
-			"player"    : src.player,
-			"col"       : src.col,
-			"row"       : src.row,
-			"unit_type" : src.get("unit_type", "infantry"),
-			"models"    : stats.models,
-			"wounds"    : 0,
-			"eliminated": false,
-			"elim_turn" : -1,
-			"start_turn": st,
-			"arrived"   : st <= 0,  # deep strike units start as not-arrived
-			"has_retreated": false,
-			"has_disrupted": false,     # DS: already used temporal disruption
-			"disrupted": false,         # was yanked by a DS this sim
-			"disrupted_turn": -1,       # turn the disruption happened
-			"disrupted_from": Vector2i(-1, -1),  # position before yank (for visual break)
-			"deploy_col": src.col,
-			"deploy_row": src.row,
-			"formation" : [],
-		})
-
-	# Compute initial formations (use stored deploy formations if available)
-	# Pre-compute non-deploy-zone blocked sets per player (for fallback path)
-	var _zone_blocked_p1 := {}
-	var _zone_blocked_p2 := {}
-	for c in COLS:
-		for r in ROWS:
-			if is_valid_hex(c, r):
-				var hid = hex_id(c, r)
-				if r < P1_DEPLOY_ROWS_MIN or r > P1_DEPLOY_ROWS_MAX or c < DEPLOY_C_MIN or c > DEPLOY_C_MAX:
-					_zone_blocked_p1[hid] = true
-				if r < P2_DEPLOY_ROWS_MIN or r > P2_DEPLOY_ROWS_MAX or c < DEPLOY_C_MIN or c > DEPLOY_C_MAX:
-					_zone_blocked_p2[hid] = true
-	for uid in units.size():
-		var u = units[uid]
-		if u.start_turn > 0: continue  # deep strike not on map yet
-		# Check if source data has a stored formation
-		var src_form: Array = input_units[uid].get("formation", [])
-		if not src_form.is_empty():
-			u.formation = src_form.duplicate()
-			units[uid] = u
-			continue
-		# Fallback: compute formation with zone + stacking constraints
-		var fp = _compute_footprint(u.unit_type, u.models)
-		var b: Dictionary = (_zone_blocked_p1 if u.player == 1 else _zone_blocked_p2).duplicate()
-		for uid2 in uid:
-			if units[uid2].start_turn > 0: continue
-			for fh in units[uid2].formation:
-				b[hex_id(fh.x, fh.y)] = true
-		u.formation = compute_compact_cluster(Vector2i(u.col, u.row), fp, b)
-		units[uid] = u
-
-	var timelines: Array = []
-	var formations_timeline: Array = []
-	for u in units:
-		var start_pos = Vector2i(-1, -1) if u.start_turn > 0 else Vector2i(u.col, u.row)
-		timelines.append([start_pos])
-		formations_timeline.append([u.formation.duplicate()])
-
-	# Random unit names (separate RNG to avoid changing combat outcomes)
-	var name_rng = RandomNumberGenerator.new()
-	name_rng.seed = 7777
-	var name_pool = UNIT_NAMES.duplicate()
-	for i in range(name_pool.size() - 1, 0, -1):
-		var j = name_rng.randi() % (i + 1)
-		var tmp = name_pool[i]
-		name_pool[i] = name_pool[j]
-		name_pool[j] = tmp
-	var unit_names: Array = []
-	for i in units.size():
-		unit_names.append(name_pool[i % name_pool.size()])
-
-	# Per-unit fate tracking
-	var unit_obj: Array = []
-	var unit_kills: Array = []
-	var unit_dmg: Array = []
-	var unit_dmg_to: Array = []   # per uid: {target_uid -> total_damage}
-	for _i in units.size():
-		unit_obj.append(["no", "no", "no"])
-		unit_kills.append(0)
-		unit_dmg.append(0)
-		unit_dmg_to.append({})
-
-	var combat_events: Array = []
-	for _t in TURNS:
-		combat_events.append([])
-
-	# Persistent objective control: 0=neutral, 1=P1, 2=P2
-	var obj_control: Array = []
-	for _i in OBJECTIVES.size():
-		obj_control.append(0)
-
-	# Per-turn cumulative VP: vp_per_turn[t] = [p1_cumulative, p2_cumulative]
-	var vp_per_turn: Array = []
-	var p1_vp_total := 0
-	var p2_vp_total := 0
-
-	# Per-turn snapshots for replay
-	var obj_ctrl_history: Array = []   # per turn: duplicate of obj_control
-	var unit_snapshots: Array = []     # per turn: array of {models, eliminated, col, row}
-
-	# Play-by-play combat log
-	var combat_log: Array = []
-	var p1_count = 0; var p2_count = 0
-	for u in units:
-		if u.player == 1: p1_count += 1
-		else: p2_count += 1
-	combat_log.append("=== Deployment: %d units (%d Blue, %d Red) ===" % [units.size(), p1_count, p2_count])
-	for uid3 in units.size():
-		var u3 = units[uid3]
-		var tc3 = _unit_prefix(u3.unit_type)
-		var tm3 = "Blue" if u3.player == 1 else "Red"
-		combat_log.append("  %s %s (%s) at (%d,%d)" % [tc3, unit_names[uid3], tm3, u3.col, u3.row])
-	combat_log.append("")
-
-	for turn in TURNS:
-		combat_log.append("--- Turn %d ---" % [turn + 1])
-
-		# ---- Deep strike arrival ----
-		for uid in units.size():
-			var u = units[uid]
-			if u.start_turn > 0 and turn == u.start_turn:
-				u.col = u.deploy_col
-				u.row = u.deploy_row
-				u.arrived = true
-				var ds_blocked = _build_blocked_from_units(units, uid, turn)
-				var ds_fp = _compute_footprint(u.unit_type, u.models)
-				u.formation = compute_compact_cluster(Vector2i(u.col, u.row), ds_fp, ds_blocked)
-				units[uid] = u
-				combat_log.append("  %s %s arrives via deep strike at (%d,%d)!" % [_unit_prefix(u.unit_type), unit_names[uid], u.col, u.row])
-
-		# ---- Track cavalry that started in melee range (no charge bonus) ----
-		var cav_no_charge := {}  # uid -> true if cavalry started within COMBAT_RANGE of any enemy
-		for uid in units.size():
-			var u = units[uid]
-			if u.unit_type != "cavalry" or u.eliminated: continue
-			if u.start_turn > 0 and turn < u.start_turn: continue
-			for eid in units.size():
-				var e = units[eid]
-				if e.eliminated or e.player == u.player: continue
-				if e.start_turn > 0 and turn < e.start_turn: continue
-				if formation_dist(u.get("formation", [Vector2i(u.col, u.row)]), e.get("formation", [Vector2i(e.col, e.row)])) <= COMBAT_RANGE:
-					cav_no_charge[uid] = true
-					break
-
-		# ---- Movement ----
-		for uid in units.size():
-			var u = units[uid]
-			# Not yet arrived (deep strike)
-			if u.start_turn > 0 and turn < u.start_turn:
-				timelines[uid].append(Vector2i(-1, -1))
-				formations_timeline[uid].append([])
-				continue
-			if u.eliminated:
-				timelines[uid].append(Vector2i(u.col, u.row))
-				formations_timeline[uid].append(u.formation.duplicate())
-				continue
-
-			var ut = u.unit_type
-			var stats = _get_stats(ut)
-
-			# Artillery: stay if has ranged target, else walk forward
-			if ut == "artillery":
-				if _find_ranged_target(uid, units, stats) >= 0:
-					timelines[uid].append(Vector2i(u.col, u.row))
-					formations_timeline[uid].append(u.formation.duplicate())
-					continue
-				# Walk straight forward (toward enemy deployment zone)
-				var fwd_row = u.row + (-1 if u.player == 1 else 1)
-				fwd_row = clampi(fwd_row, 0, ROWS - 1)
-				var fwd_goal = Vector2i(u.col, fwd_row)
-				var blocked_art = _build_blocked_from_units(units, uid, turn, fwd_goal)
-				var art_path = find_path(u.col, u.row, fwd_goal.x, fwd_goal.y, blocked_art)
-				var art_steps = mini(stats.move, art_path.size())
-				for step_i in art_steps:
-					var nxt = art_path[step_i]
-					u.col = nxt.x; u.row = nxt.y
-					units[uid] = u
-				var art_post_blocked = _build_blocked_from_units(units, uid, turn)
-				var art_fp = _compute_footprint(ut, u.models)
-				u.formation = compute_compact_cluster(Vector2i(u.col, u.row), art_fp, art_post_blocked)
-				units[uid] = u
-				timelines[uid].append(Vector2i(u.col, u.row))
-				formations_timeline[uid].append(u.formation.duplicate())
-				continue
-
-			# Archer: avoid melee range, kite at max range
-			elif ut == "archer":
-				# If not in melee, try to maintain max range from nearest enemy
-				if _nearest_enemy_in_range(uid, units, COMBAT_RANGE) < 0:
-					var archer_goal = _pick_archer_target(uid, units)
-					if archer_goal == Vector2i(u.col, u.row):
-						timelines[uid].append(archer_goal)
-						formations_timeline[uid].append(u.formation.duplicate())
-						continue
-					var blocked = _build_blocked_from_units(units, uid, turn, archer_goal)
-					var path = find_path(u.col, u.row, archer_goal.x, archer_goal.y, blocked)
-					var move_steps = mini(stats.move, path.size())
-					for step_i in move_steps:
-						var nxt = path[step_i]
-						# Archer avoids entering combat range
-						var would_engage = false
-						for oid in units.size():
-							if oid == uid or units[oid].eliminated or units[oid].player == u.player: continue
-							if units[oid].start_turn > 0 and turn < units[oid].start_turn: continue
-							if formation_dist_to_hex(units[oid].get("formation", [Vector2i(units[oid].col, units[oid].row)]), nxt) <= COMBAT_RANGE:
-								would_engage = true
-								break
-						if would_engage:
-							break
-						u.col = nxt.x; u.row = nxt.y
-						units[uid] = u
-					var arch_post_blocked = _build_blocked_from_units(units, uid, turn)
-					var arch_fp = _compute_footprint(ut, u.models)
-					u.formation = compute_compact_cluster(Vector2i(u.col, u.row), arch_fp, arch_post_blocked)
-					units[uid] = u
-					timelines[uid].append(Vector2i(u.col, u.row))
-					formations_timeline[uid].append(u.formation.duplicate())
-					continue
-				else:
-					# In melee — stay (will fight, then retreat after combat)
-					timelines[uid].append(Vector2i(u.col, u.row))
-					formations_timeline[uid].append(u.formation.duplicate())
-					continue
-
-			# Deep strike temporal disruption: hunt enemy trail hexes
-			if ut == "deep_strike" and not u.has_disrupted:
-				# Already in melee? Stay and fight (disruption opportunity missed)
-				if _nearest_enemy_in_range(uid, units, COMBAT_RANGE) >= 0:
-					timelines[uid].append(Vector2i(u.col, u.row))
-					formations_timeline[uid].append(u.formation.duplicate())
-					continue
-				# Find nearest enemy trail hex
-				var trail_target = _pick_trail_target(uid, units, timelines, formations_timeline, turn)
-				if trail_target.is_empty():
-					# No trail to hunt — fall through to default movement
-					pass
-				else:
-					var t_hex: Vector2i = trail_target.hex
-					var t_eid: int = trail_target.enemy_uid
-					var blocked_ds = _build_blocked_from_units(units, uid, turn, t_hex)
-					var ds_path = find_path(u.col, u.row, t_hex.x, t_hex.y, blocked_ds)
-					var ds_move_steps = mini(stats.move, ds_path.size())
-					for step_i in ds_move_steps:
-						var nxt = ds_path[step_i]
-						u.col = nxt.x; u.row = nxt.y
-						u.formation = [Vector2i(u.col, u.row)]
-						units[uid] = u
-					# Check if within COMBAT_RANGE of trail hex — trigger disruption
-					var u_form_post = u.get("formation", [Vector2i(u.col, u.row)])
-					if formation_dist_to_hex(u_form_post, t_hex) <= COMBAT_RANGE:
-						# --- TEMPORAL DISRUPTION ---
-						var enemy = units[t_eid]
-						if not enemy.eliminated:
-							var old_pos = Vector2i(enemy.col, enemy.row)
-							enemy.col = t_hex.x
-							enemy.row = t_hex.y
-							enemy.disrupted = true
-							enemy.disrupted_turn = turn
-							enemy.disrupted_from = old_pos
-							# Recompute enemy formation at yanked position
-							var e_blocked = _build_blocked_from_units(units, t_eid, turn)
-							var e_fp = _compute_footprint(enemy.unit_type, enemy.models)
-							enemy.formation = compute_compact_cluster(Vector2i(enemy.col, enemy.row), e_fp, e_blocked)
-							units[t_eid] = enemy
-							# Overwrite enemy's timeline entry for this turn if already recorded
-							# Timeline index for turn t is t+1 (index 0 = deploy)
-							if timelines[t_eid].size() > turn + 1:
-								timelines[t_eid][timelines[t_eid].size() - 1] = Vector2i(enemy.col, enemy.row)
-								formations_timeline[t_eid][formations_timeline[t_eid].size() - 1] = enemy.formation.duplicate()
-							combat_log.append("  >> TEMPORAL DISRUPTION: %s %s yanks %s %s from (%d,%d) back to (%d,%d)!" % [
-								_unit_prefix(u.unit_type), unit_names[uid],
-								_unit_prefix(enemy.unit_type), unit_names[t_eid],
-								old_pos.x, old_pos.y, enemy.col, enemy.row])
-						else:
-							combat_log.append("  >> %s %s reaches trail of eliminated %s %s — disruption wasted!" % [
-								_unit_prefix(u.unit_type), unit_names[uid],
-								_unit_prefix(units[t_eid].unit_type), unit_names[t_eid]])
-						u.has_disrupted = true
-						units[uid] = u
-					# Recompute DS formation
-					var ds_post_blocked = _build_blocked_from_units(units, uid, turn)
-					var ds_fp = _compute_footprint(ut, u.models)
-					u.formation = compute_compact_cluster(Vector2i(u.col, u.row), ds_fp, ds_post_blocked)
-					units[uid] = u
-					timelines[uid].append(Vector2i(u.col, u.row))
-					formations_timeline[uid].append(u.formation.duplicate())
-					continue
-
-			# Default: infantry, cavalry, deep_strike, artillery fallback
-			if _nearest_enemy_in_range(uid, units, COMBAT_RANGE) >= 0:
-				timelines[uid].append(Vector2i(u.col, u.row))
-				formations_timeline[uid].append(u.formation.duplicate())
-				continue
-
-			var goal = _pick_target(uid, units)
-			if goal == Vector2i(u.col, u.row):
-				timelines[uid].append(goal)
-				formations_timeline[uid].append(u.formation.duplicate())
-				continue
-
-			var blocked = _build_blocked_from_units(units, uid, turn, goal)
-
-			var path = find_path(u.col, u.row, goal.x, goal.y, blocked)
-			var move_steps = mini(stats.move, path.size())
-			for step_i in move_steps:
-				var nxt = path[step_i]
-				u.col = nxt.x; u.row = nxt.y
-				u.formation = [Vector2i(u.col, u.row)]  # temp single-hex during movement
-				units[uid] = u
-				if _nearest_enemy_in_range(uid, units, COMBAT_RANGE) >= 0:
-					break
-			var post_blocked = _build_blocked_from_units(units, uid, turn)
-			var fp = _compute_footprint(ut, u.models)
-			u.formation = compute_compact_cluster(Vector2i(u.col, u.row), fp, post_blocked)
-			units[uid] = u
-			timelines[uid].append(Vector2i(u.col, u.row))
-			formations_timeline[uid].append(u.formation.duplicate())
-
-		# Log movement
-		for uid2 in units.size():
-			var u2 = units[uid2]
-			if u2.eliminated: continue
-			if u2.start_turn > 0 and turn < u2.start_turn: continue
-			var tl = timelines[uid2]
-			if tl.size() < 2: continue
-			var prev = tl[tl.size() - 2]
-			var cur  = tl[tl.size() - 1]
-			if prev != cur and prev != Vector2i(-1, -1):
-				var tc2 = _unit_prefix(u2.unit_type)
-				var tm2 = "Blue" if u2.player == 1 else "Red"
-				combat_log.append("  %s %s (%s) moves (%d,%d)->(%d,%d)" % [tc2, unit_names[uid2], tm2, prev.x, prev.y, cur.x, cur.y])
-
-		# ---- Ranged Phase ----
-		var ranged_shot := {}  # uid -> true, track who shot at range
-		for uid in units.size():
-			var u = units[uid]
-			if u.eliminated: continue
-			if u.start_turn > 0 and turn < u.start_turn: continue
-			var stats = _get_stats(u.unit_type)
-			if not stats.has("range"): continue
-			# Silenced in melee
-			if _nearest_enemy_in_range(uid, units, COMBAT_RANGE) >= 0: continue
-			var tid = _find_ranged_target(uid, units, stats)
-			if tid < 0: continue
-			ranged_shot[uid] = true
-			var t = units[tid]
-			# Per-combat RNG for ranged
-			var rng := RandomNumberGenerator.new()
-			var rseed: int = turn * 13 + uid * 100003 + tid * 999983
-			for ni in units.size():
-				var nu = units[ni]
-				if nu.eliminated: continue
-				if nu.start_turn > 0 and turn < nu.start_turn: continue
-				var nu_form = nu.get("formation", [Vector2i(nu.col, nu.row)])
-				if formation_dist(nu_form, u.get("formation", [Vector2i(u.col, u.row)])) <= COMBAT_RANGE or \
-				   formation_dist(nu_form, t.get("formation", [Vector2i(t.col, t.row)])) <= COMBAT_RANGE:
-					rseed = rseed ^ (nu.col * 31 + nu.row * 97 + nu.player * 7919 + ni * 1009)
-			rng.seed = rseed
-			var dmg = _roll_combat(u, t, rng)
-			unit_dmg[uid] += dmg
-			if not unit_dmg_to[uid].has(tid): unit_dmg_to[uid][tid] = 0
-			unit_dmg_to[uid][tid] += dmg
-			var t_mdl_before = units[tid].models
-			_apply_wounds(tid, units, dmg, turn)
-			combat_events[turn].append({ "a": uid, "b": tid,
-				"ac": u.col, "ar": u.row, "bc": t.col, "br": t.row })
-			var u_tc = _unit_prefix(u.unit_type)
-			var t_tc = _unit_prefix(t.unit_type)
-			combat_log.append("  %s %s shoots %s %s (range):" % [u_tc, unit_names[uid], t_tc, unit_names[tid]])
-			if dmg > 0:
-				var lost = t_mdl_before - units[tid].models
-				var lost_s = " (%d models killed)" % lost if lost > 0 else ""
-				combat_log.append("    %s takes %d wounds%s" % [unit_names[tid], dmg, lost_s])
-			else:
-				combat_log.append("    No wounds dealt")
-			if units[tid].eliminated and units[tid].elim_turn == turn:
-				unit_kills[uid] += 1
-				combat_log.append("    >>> %s %s ELIMINATED <<<" % [t_tc, unit_names[tid]])
-
-		# ---- Melee Phase ----
-		var fought := {}
-		var melee_participants := {}  # uid -> true, for archer retreat tracking
-		for uid in units.size():
-			var u = units[uid]
-			if u.eliminated: continue
-			if u.start_turn > 0 and turn < u.start_turn: continue
-			var eid = _nearest_enemy_in_range(uid, units, COMBAT_RANGE)
-			if eid < 0: continue
-			var pair_key = mini(uid, eid) * 10000 + maxi(uid, eid)
-			if fought.has(pair_key): continue
-			fought[pair_key] = true
-			melee_participants[uid] = true
-			melee_participants[eid] = true
-			var e = units[eid]
-			combat_events[turn].append({ "a": uid, "b": eid,
-				"ac": u.col, "ar": u.row, "bc": e.col, "br": e.row })
-
-			# Per-combat RNG
-			var fight_rng := RandomNumberGenerator.new()
-			var fight_seed: int = turn * 7 + mini(uid, eid) * 100003 + maxi(uid, eid) * 999983
-			for ni in units.size():
-				var nu = units[ni]
-				if nu.eliminated: continue
-				if nu.start_turn > 0 and turn < nu.start_turn: continue
-				var nu_form = nu.get("formation", [Vector2i(nu.col, nu.row)])
-				if formation_dist(nu_form, u.get("formation", [Vector2i(u.col, u.row)])) <= COMBAT_RANGE or \
-				   formation_dist(nu_form, e.get("formation", [Vector2i(e.col, e.row)])) <= COMBAT_RANGE:
-					fight_seed = fight_seed ^ (nu.col * 31 + nu.row * 97 + nu.player * 7919 + ni * 1009)
-			fight_rng.seed = fight_seed
-			# Use melee profile for artillery/archer
-			var dmg_to_e = _roll_melee(u, e, fight_rng)
-			var dmg_to_u = _roll_melee(e, u, fight_rng)
-			# Archer first melee: half damage both ways
-			if u.unit_type == "archer" and not u.has_retreated:
-				dmg_to_e = dmg_to_e / 2
-				dmg_to_u = dmg_to_u / 2
-			if e.unit_type == "archer" and not e.has_retreated:
-				dmg_to_e = dmg_to_e / 2
-				dmg_to_u = dmg_to_u / 2
-			# Cavalry no charge: halve damage output (dmg 2->1 per hit)
-			# Also applies to disrupted cavalry (yanked = lost momentum)
-			if cav_no_charge.has(uid) or (u.unit_type == "cavalry" and u.disrupted and u.disrupted_turn == turn):
-				dmg_to_e = dmg_to_e / 2
-			if cav_no_charge.has(eid) or (e.unit_type == "cavalry" and e.disrupted and e.disrupted_turn == turn):
-				dmg_to_u = dmg_to_u / 2
-			unit_dmg[uid] += dmg_to_e
-			unit_dmg[eid] += dmg_to_u
-			if not unit_dmg_to[uid].has(eid): unit_dmg_to[uid][eid] = 0
-			unit_dmg_to[uid][eid] += dmg_to_e
-			if not unit_dmg_to[eid].has(uid): unit_dmg_to[eid][uid] = 0
-			unit_dmg_to[eid][uid] += dmg_to_u
-			var u_mdl_before = units[uid].models
-			var e_mdl_before = units[eid].models
-			_apply_wounds(uid, units, dmg_to_u, turn)
-			_apply_wounds(eid, units, dmg_to_e, turn)
-
-			var u_tc = _unit_prefix(u.unit_type)
-			var e_tc = _unit_prefix(e.unit_type)
-			combat_log.append("  %s %s vs %s %s (melee):" % [u_tc, unit_names[uid], e_tc, unit_names[eid]])
-			if dmg_to_u > 0:
-				var lost = u_mdl_before - units[uid].models
-				var lost_s = " (%d models killed)" % lost if lost > 0 else ""
-				combat_log.append("    %s takes %d wounds%s" % [unit_names[uid], dmg_to_u, lost_s])
-			if dmg_to_e > 0:
-				var lost = e_mdl_before - units[eid].models
-				var lost_s = " (%d models killed)" % lost if lost > 0 else ""
-				combat_log.append("    %s takes %d wounds%s" % [unit_names[eid], dmg_to_e, lost_s])
-			if dmg_to_u == 0 and dmg_to_e == 0:
-				combat_log.append("    No wounds dealt")
-
-			if units[eid].eliminated and units[eid].elim_turn == turn:
-				unit_kills[uid] += 1
-				combat_log.append("    >>> %s %s ELIMINATED <<<" % [e_tc, unit_names[eid]])
-			if units[uid].eliminated and units[uid].elim_turn == turn:
-				unit_kills[eid] += 1
-				combat_log.append("    >>> %s %s ELIMINATED <<<" % [u_tc, unit_names[uid]])
-
-		# ---- Archer Retreat Phase ----
-		for uid in units.size():
-			var u = units[uid]
-			if u.unit_type != "archer": continue
-			if u.eliminated: continue
-			if not melee_participants.has(uid): continue
-			# Retreat: move away from all units and objectives
-			var best_hex := Vector2i(u.col, u.row)
-			var best_score := -1.0
-			var retreat_blocked = _build_blocked_from_units(units, uid, turn)
-			# BFS to find reachable hexes within retreat_move steps
-			var visited := { hex_id(u.col, u.row): 0 }
-			var frontier := [Vector2i(u.col, u.row)]
-			var retreat_stats = _get_stats("archer")
-			var max_steps = retreat_stats.get("retreat_move", 5)
-			for _step in max_steps:
-				var next_frontier: Array = []
-				for fh in frontier:
-					var fdist = visited[hex_id(fh.x, fh.y)]
-					if fdist >= max_steps: continue
-					for nb in hex_neighbors(fh.x, fh.y):
-						var nid = hex_id(nb.x, nb.y)
-						if not is_valid_hex(nb.x, nb.y): continue
-						if visited.has(nid): continue
-						if retreat_blocked.has(nid): continue
-						visited[nid] = fdist + 1
-						next_frontier.append(nb)
-				frontier = next_frontier
-			# Score each reachable hex by min distance from all units/objectives
-			for hid in visited:
-				var hx = id_to_hex(hid)
-				var min_dist := 999
-				for i in units.size():
-					if i == uid or units[i].eliminated: continue
-					if units[i].start_turn > 0 and turn < units[i].start_turn: continue
-					var d = formation_dist_to_hex(units[i].get("formation", [Vector2i(units[i].col, units[i].row)]), hx)
-					if d < min_dist: min_dist = d
-				for obj in OBJECTIVES:
-					var d = hex_dist(hx.x, hx.y, obj.x, obj.y)
-					if d < min_dist: min_dist = d
-				if min_dist > best_score:
-					best_score = min_dist
-					best_hex = hx
-			if best_hex != Vector2i(u.col, u.row):
-				u.col = best_hex.x; u.row = best_hex.y
-				# Recompute formation at retreat position
-				var ret_blocked = _build_blocked_from_units(units, uid, turn)
-				var ret_fp = _compute_footprint(u.unit_type, u.models)
-				u.formation = compute_compact_cluster(Vector2i(u.col, u.row), ret_fp, ret_blocked)
-				units[uid] = u
-				# Update the last timeline/formation entry to reflect retreat position
-				timelines[uid][timelines[uid].size() - 1] = best_hex
-				formations_timeline[uid][formations_timeline[uid].size() - 1] = u.formation.duplicate()
-				combat_log.append("  W %s retreats to (%d,%d)" % [unit_names[uid], best_hex.x, best_hex.y])
-			if not u.has_retreated:
-				u.has_retreated = true
-				units[uid] = u
-
-		# ---- Update persistent objective control (OC-based capture) ----
-		for oi in OBJECTIVES.size():
-			var obj = OBJECTIVES[oi]
-			var old_ctrl = obj_control[oi]
-			var p1_oc := 0; var p2_oc := 0
-			for u in units:
-				if u.eliminated: continue
-				if u.start_turn > 0 and turn < u.start_turn: continue
-				var ust = _get_stats(u.unit_type)
-				var u_form = u.get("formation", [Vector2i(u.col, u.row)])
-				if formation_dist_to_hex(u_form, obj) <= OC_RADIUS:
-					var oc_total = ust.get("oc", 1) * u.models
-					if u.player == 1: p1_oc += oc_total
-					else:              p2_oc += oc_total
-			if p1_oc > p2_oc and p1_oc > 0:
-				obj_control[oi] = 1
-			elif p2_oc > p1_oc and p2_oc > 0:
-				obj_control[oi] = 2
-			# Track unit objective contributions
-			for uid2 in units.size():
-				var u2 = units[uid2]
-				if u2.eliminated: continue
-				if u2.start_turn > 0 and turn < u2.start_turn: continue
-				var u2_form = u2.get("formation", [Vector2i(u2.col, u2.row)])
-				if formation_dist_to_hex(u2_form, obj) > OC_RADIUS: continue
-				if obj_control[oi] == u2.player and old_ctrl != u2.player:
-					unit_obj[uid2][oi] = "won"
-				elif p1_oc > 0 and p2_oc > 0 and unit_obj[uid2][oi] != "won":
-					unit_obj[uid2][oi] = "yes"
-
-		# Tally VP: 5 per objective held this turn
-		for oi2 in OBJECTIVES.size():
-			if obj_control[oi2] == 1: p1_vp_total += 5
-			elif obj_control[oi2] == 2: p2_vp_total += 5
-		vp_per_turn.append([p1_vp_total, p2_vp_total])
-
-		# Log objectives and score
-		combat_log.append("  Objectives:")
-		for oi3 in OBJECTIVES.size():
-			var ctrl_s = "Neutral"
-			if obj_control[oi3] == 1: ctrl_s = "Blue"
-			elif obj_control[oi3] == 2: ctrl_s = "Red"
-			combat_log.append("    O%d (%d,%d): %s" % [oi3 + 1, OBJECTIVES[oi3].x, OBJECTIVES[oi3].y, ctrl_s])
-		combat_log.append("  Score: Blue %d - Red %d" % [p1_vp_total, p2_vp_total])
-		combat_log.append("")
-
-		# Snapshot for replay
-		obj_ctrl_history.append(obj_control.duplicate())
-		var snap: Array = []
-		for uid2 in units.size():
-			var u2 = units[uid2]
-			snap.append({ "models": u2.models, "eliminated": u2.eliminated, "col": u2.col, "row": u2.row, "formation": u2.formation.duplicate() })
-		unit_snapshots.append(snap)
-
-	return { "timelines": timelines, "formations_timeline": formations_timeline, "units": units, "combat": combat_events, "obj_control": obj_control, "vp_per_turn": vp_per_turn, "unit_names": unit_names, "unit_obj": unit_obj, "unit_kills": unit_kills, "unit_dmg": unit_dmg, "unit_dmg_to": unit_dmg_to, "combat_log": combat_log, "obj_ctrl_history": obj_ctrl_history, "unit_snapshots": unit_snapshots }
-
-func _apply_wounds(uid: int, units: Array, wounds: int, turn: int):
-	var u     = units[uid]
-	var stats = _get_stats(u.unit_type)
-	var old_models = u.models
-	u.wounds += wounds
-	while u.wounds >= stats.hp and u.models > 0:
-		u.wounds -= stats.hp
-		u.models -= 1
-	if u.models <= 0:
-		u.eliminated = true
-		u.elim_turn  = turn
-		u.formation = []
-	elif u.models < old_models:
-		var new_fp = _compute_footprint(u.unit_type, u.models)
-		if new_fp < u.get("formation", []).size():
-			u.formation = _shrink_formation(u.formation, new_fp, uid, units)
-	units[uid] = u
-
-func _shrink_formation(formation: Array, new_size: int, uid: int, units: Array) -> Array:
-	if formation.size() <= new_size:
-		return formation
-	# Find nearest enemy to determine which hexes to release
-	var u = units[uid]
-	var enemy_center := Vector2i(u.col, u.row)
-	var best_d := 999999
-	for eid in units.size():
-		if eid == uid: continue
-		var e = units[eid]
-		if e.eliminated or e.player == u.player: continue
-		if not e.get("arrived", true): continue
-		var e_form = e.get("formation", [Vector2i(e.col, e.row)])
-		var d = formation_dist(formation, e_form)
-		if d < best_d:
-			best_d = d
-			enemy_center = Vector2i(e.col, e.row)
-	# Keep hexes FURTHEST from enemy (release closest = front-line shrinks)
-	var sorted_form = formation.duplicate()
-	sorted_form.sort_custom(func(a, b):
-		return hex_dist(a.x, a.y, enemy_center.x, enemy_center.y) > hex_dist(b.x, b.y, enemy_center.x, enemy_center.y)
-	)
-	return sorted_form.slice(0, new_size)
 
 # ============================================================================
 # GAME STATE
@@ -1215,6 +306,9 @@ var log_scroll: int  = 0
 var replay_mode  := false
 var replay_turn  := 0
 
+# Analytics UI toggle (Tab key)
+var show_analytics_ui := true
+
 # Battle summary
 var show_summary := false
 var summary_lines: Array = []  # Array of {text, color, bold}
@@ -1249,6 +343,7 @@ func _load_unit_sprites():
 				unit_sprites[p][ut] = {"idle": idle_tex, "run": run_tex}
 
 var _terrain_map: TileMapLayer = null
+var _terrain_sprites: Dictionary = {}  # terrain_key -> Texture2D
 var _cursor_hand: Texture2D = null
 var _cursor_nogo: Texture2D = null
 var _icon_sword: Texture2D = null
@@ -1258,6 +353,9 @@ var _icon_death: Texture2D = null
 func _ready():
 	#tile_tex = load("res://assets/hex tactics assets/single tile.png")
 	_terrain_map = get_node_or_null("TerrainMap")
+	_load_terrain_data()
+	_sim = CombatSimulator.new(_terrain_resources, _terrain_data)
+	_load_terrain_sprites()
 	_load_unit_sprites()
 	_cursor_hand = _load_png_as_texture(ProjectSettings.globalize_path("res://assets/2d tinytowers assets/UI Elements/UI Elements/Cursors/Cursor_02.png"))
 	_cursor_nogo = _load_png_as_texture(ProjectSettings.globalize_path("res://assets/2d tinytowers assets/UI Elements/UI Elements/Cursors/Cursor_03.png"))
@@ -1268,7 +366,7 @@ func _ready():
 	_icon_survive = _load_png_as_texture(icon_dir + "Icon_07.png")
 	_icon_death = _load_png_as_texture(icon_dir + "Icon_09.png")
 	var vp = get_viewport_rect().size
-	cam_zoom = 0.5
+	cam_zoom = _grid.initial_zoom
 	# Center the map in the viewport (offset layout)
 	var mid_col = COLS / 2
 	var mid_row = ROWS / 2
@@ -1358,6 +456,10 @@ func _input(event: InputEvent):
 			return
 		if event.keycode == KEY_L:
 			_log_visible = not _log_visible
+			queue_redraw()
+			return
+		if event.keycode == KEY_TAB:
+			show_analytics_ui = not show_analytics_ui
 			queue_redraw()
 			return
 
@@ -1501,6 +603,9 @@ func _is_deploy_hex(h: Vector2i) -> bool:
 	else:
 		in_zone = h.y >= P2_DEPLOY_ROWS_MIN and h.y <= P2_DEPLOY_ROWS_MAX and h.x >= DEPLOY_C_MIN and h.x <= DEPLOY_C_MAX
 	if not in_zone:
+		return false
+	# Cannot deploy on impassable terrain
+	if not _is_hex_passable(h.x, h.y):
 		return false
 	# Check anchor not blocked by existing formations
 	if _deploy_blocked_cache.has(hex_id(h.x, h.y)):
@@ -2269,13 +1374,14 @@ func _draw():
 	if phase == Phase.DEPLOY and view_mode == ViewMode.FINAL:
 		_draw_final_state(draw_sim)
 		_draw_hud()
-		_draw_scoreboard(draw_sim)
-		_draw_unit_fate(draw_sim)
-		if _log_visible: _draw_combat_log()
-		if use_preview:
-			_draw_preview_narrative(draw_sim)
-		if hover_trail_uid >= 0 and not selecting_unit and not ds_selecting_turn:
-			_draw_trail_tooltip(draw_sim)
+		if show_analytics_ui:
+			_draw_scoreboard(draw_sim)
+			_draw_unit_fate(draw_sim)
+			if _log_visible: _draw_combat_log()
+			if use_preview:
+				_draw_preview_narrative(draw_sim)
+			if hover_trail_uid >= 0 and not selecting_unit and not ds_selecting_turn:
+				_draw_trail_tooltip(draw_sim)
 		# "Change view" cursor tooltip in FINAL mode
 		if not preview_sim.is_empty() and not selecting_unit and not ds_selecting_turn:
 			var vp_f = get_viewport_rect().size
@@ -2337,15 +1443,16 @@ func _draw():
 		_draw_sim(draw_sim, use_preview)
 
 	_draw_hud()
-	_draw_scoreboard(draw_sim)
-	_draw_unit_fate(draw_sim)
-	_draw_combat_log()
-	if use_preview:
-		_draw_preview_narrative(draw_sim)
+	if show_analytics_ui:
+		_draw_scoreboard(draw_sim)
+		_draw_unit_fate(draw_sim)
+		_draw_combat_log()
+		if use_preview:
+			_draw_preview_narrative(draw_sim)
 
-	# Trail hover tooltip (works in both DEPLOY and DONE phases)
-	if hover_trail_uid >= 0 and not selecting_unit and not ds_selecting_turn and not showing_shift_summary and not show_summary:
-		_draw_trail_tooltip(draw_sim)
+		# Trail hover tooltip (works in both DEPLOY and DONE phases)
+		if hover_trail_uid >= 0 and not selecting_unit and not ds_selecting_turn and not showing_shift_summary and not show_summary:
+			_draw_trail_tooltip(draw_sim)
 
 	# "Change view" cursor tooltip during deploy with active preview
 	if phase == Phase.DEPLOY and not preview_sim.is_empty() and not selecting_unit and not ds_selecting_turn and not showing_shift_summary and not show_summary:
@@ -2409,6 +1516,24 @@ func _draw_tile(col: int, row: int):
 	var outline_pts = PackedVector2Array(corners)
 	outline_pts.append(corners[0])
 	draw_polyline(outline_pts, Color(C_STROKE.r, C_STROKE.g, C_STROKE.b, 0.5), 0.5)
+
+	# Terrain sprite overlay (non-grass hexes)
+	var terrain = _get_terrain_at(col, row)
+	if terrain.terrain_key != "grass":
+		var t_sprite = _terrain_sprites.get(terrain.terrain_key)
+		if t_sprite:
+			var tw = HEX_SIZE * 2.0 * cam_zoom
+			var th = HEX_SIZE * 2.0 * cam_zoom
+			var dest = Rect2(center - Vector2(tw * 0.5, th * 0.5), Vector2(tw, th))
+			draw_texture_rect(t_sprite, dest, false)
+		else:
+			var t_tint = terrain.tile_color
+			t_tint.a = 0.35
+			draw_colored_polygon(corners, t_tint)
+		var t_outline = PackedVector2Array(corners)
+		t_outline.append(corners[0])
+		var t_color = Color(0.2, 0.5, 0.2) if terrain.terrain_key == "forest" else Color(0.2, 0.4, 0.7)
+		draw_polyline(t_outline, t_color, 2.5 * cam_zoom)
 
 	# Zone tint overlay
 	var tint = Color(0, 0, 0, 0)

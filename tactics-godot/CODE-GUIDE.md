@@ -1,6 +1,16 @@
-# HexMoveDemo.gd — Code Guide for New Godot Users
+# HexMoveDemo — Code Guide for New Godot Users
 
-This is a single-file Godot 4.6 prototype. Everything lives in `HexMoveDemo.gd` (~3700 lines), attached to a Node2D in `HexMoveDemo.tscn`. No other scripts, no UI nodes, no tilemaps — just one script drawing everything manually.
+This is a Godot 4.6 tactics prototype with a multi-file architecture (refactor in progress). The main orchestrator is `HexMoveDemo.gd` (~2,965 lines), with simulation and math extracted into separate scripts. Game config lives in `.tres` resource files editable in the Godot Inspector.
+
+**File overview:**
+| File | Lines | Role |
+|------|-------|------|
+| `HexMoveDemo.gd` | 2,965 | Orchestrator: state, input, deploy, rendering, HUD |
+| `scripts/hex_math.gd` | 94 | Pure hex math (static class — `HexMath.hex_to_pixel()`, etc.) |
+| `scripts/combat_simulator.gd` | 948 | Simulation engine, AI, pathfinding, combat rolls |
+| `scripts/resources/*.gd` | 4 files | Resource class definitions (UnitStats, GridConfig, BattleConfig, TerrainType) |
+| `resources/**/*.tres` | 10 files | 5 unit configs + 2 game configs + 3 terrain types |
+| `HeadlessSim.gd` | 304 | CLI simulation runner (uses CombatSimulator directly) |
 
 ---
 
@@ -12,11 +22,16 @@ This is a single-file Godot 4.6 prototype. Everything lives in `HexMoveDemo.gd` 
 
 ## How Godot Runs This File
 
-Godot has a **scene tree**. Our scene is just one node:
+Godot has a **scene tree**. Our main scene:
 
 ```
-HexMoveDemo (Node2D)  ← has HexMoveDemo.gd attached
+HexMoveDemo (Node2D)       ← has HexMoveDemo.gd attached
+└── TileMapLayer           ← placeholder for future tile-based rendering
 ```
+
+HexMoveDemo instantiates helper objects at runtime:
+- `_sim = CombatSimulator.new()` — the simulation engine (RefCounted, not a node)
+- HexMath is a static class — called as `HexMath.function_name()` with no instance
 
 Godot calls these functions on our script automatically:
 
@@ -31,33 +46,27 @@ Godot calls these functions on our script automatically:
 
 ---
 
-## File Structure (top to bottom)
+## File Structure
 
-### Lines 1–95: Configuration Constants
+### Configuration (Resource files)
 
-```
-COLS/ROWS          → grid dimensions (56×40)
-HEX_SIZE           → radius of each hex in pixels (20)
-UNITS_PER_SIDE     → how many units each player places (8)
-TURNS              → simulation length (10)
-COMBAT_RANGE       → hexes away to trigger combat (2)
-OC_RADIUS          → hexes for objective control check (4)
-CAVALRY_AGGRO      → cavalry hunt range (16)
-P1/P2_DEPLOY_ROWS  → which rows each player can click to place units
-OBJECTIVES         → 3 hex coordinates: (14,20), (28,18), (42,20)
-INFANTRY/CAVALRY/ARTILLERY/DEEP_STRIKE/ARCHER → stat blocks (models, hp, move, oc, footprint, attacks, armor)
-UNIT_TYPES         → ["infantry", "cavalry", "artillery", "deep_strike", "archer"]
-C_BG, C_P1, etc.   → color constants
-```
+Game constants are no longer hardcoded — they live in `.tres` resource files editable in the Godot Inspector:
 
-**To change game balance:** edit the unit stat dictionaries. Use `_get_stats(unit_type)` to look up stats by type string. Key fields: `models`, `hp`, `move`, `oc` (objective control per model), `footprint` (fixed, artillery only).
-**To resize the map:** change COLS, ROWS, and adjust deploy rows/objectives.
+- **`resources/config/grid_config.tres`** — COLS, ROWS, HEX_SIZE, deploy zones, objectives, initial zoom
+- **`resources/config/battle_config.tres`** — COMBAT_RANGE, OC_RADIUS, CAVALRY_AGGRO, VP rules, TURNS
+- **`resources/units/*.tres`** — per-unit stats (models, hp, move, oc, attacks, armor, etc.)
+- **`resources/terrain/*.tres`** — terrain types (grass, forest, water)
+
+HexMoveDemo.gd has property getters that read from these resources (e.g., `var COLS: int: get: return _grid.cols`), so existing game logic still references `COLS`, `COMBAT_RANGE`, etc. unchanged.
+
+**To change game balance:** edit the `.tres` files in the Inspector, or edit `_get_stats(unit_type)` which reads from cached resource data.
+**To resize the map:** edit `grid_config.tres` and adjust deploy zones/objectives.
 
 ---
 
-### Lines 96–195: Hex Math
+### Hex Math (`scripts/hex_math.gd`)
 
-This is the math that converts between **grid coordinates** (col, row) and **screen pixels**.
+This is the math that converts between **grid coordinates** (col, row) and **screen pixels**. Extracted into a static class — call as `HexMath.function_name()`.
 
 We use **flat-top hexagons** with **odd-q offset** coordinates:
 - Columns go left→right
@@ -88,9 +97,9 @@ We use **flat-top hexagons** with **odd-q offset** coordinates:
 
 ---
 
-### Lines 196–230: A* Pathfinding
+### A* Pathfinding (inside `scripts/combat_simulator.gd`)
 
-Uses Godot's built-in `AStar2D` class.
+Uses Godot's built-in `AStar2D` class, owned by `CombatSimulator`.
 
 ```
 build_astar(blocked)  → Rebuilds the full graph, skipping hexes in the "blocked" dict
@@ -101,9 +110,9 @@ find_path(...)        → Returns array of Vector2i waypoints from start to goal
 
 ---
 
-### Lines 232–430: Formation Helpers & Targeting Functions
+### Formation Helpers & Targeting Functions
 
-Multi-hex formation system — units occupy multiple hexes based on model count.
+Multi-hex formation system — units occupy multiple hexes based on model count. Formation and targeting functions live in `combat_simulator.gd`; HexMoveDemo keeps thin wrappers so call sites are unchanged.
 
 ```
 _compute_footprint(unit_type, models) → ceil(models/2), or fixed footprint for artillery
@@ -134,9 +143,9 @@ This cache is rebuilt when a unit type is selected or a DS turn is chosen. `comp
 
 ---
 
-### Lines 303–1100: Simulation Engine (including targeting & combat helpers)
+### Simulation Engine (`scripts/combat_simulator.gd`)
 
-This is the **core game logic**. The `simulate()` function takes placed units and returns the entire battle.
+This is the **core game logic**, extracted into `CombatSimulator` (extends RefCounted). The `simulate()` function takes placed units and returns the entire battle. HexMoveDemo creates an instance via `_sim = CombatSimulator.new()` and delegates through thin wrappers.
 
 #### How `simulate()` works:
 
@@ -195,7 +204,7 @@ Each combat pair gets its own RNG seed derived from the pair identity, turn numb
 
 ---
 
-### Lines 1144–1470: Game State & Input
+### Game State & Input (in HexMoveDemo.gd)
 
 #### Phase system:
 ```
@@ -250,7 +259,7 @@ When the mouse moves over a hex during DEPLOY or DONE phases, `_find_trail_uid_a
 
 ---
 
-### Lines 2210–2230: Process Loop
+### Process Loop (in HexMoveDemo.gd)
 
 ```gdscript
 func _process(delta):
@@ -271,9 +280,9 @@ func _process(delta):
 
 ---
 
-### Lines 2235–2805+: Drawing
+### Drawing (in HexMoveDemo.gd — ~1,900 lines, targeted for extraction in Phases 5-6)
 
-All rendering happens in `_draw()` and its helpers. **Nothing uses Godot's scene tree for visuals** — it's all manual `draw_*` calls.
+All rendering happens in `_draw()` and its helpers. **Nothing uses Godot's scene tree for visuals** — it's all manual `draw_*` calls. This is the next extraction target (see `REFACTOR-NOTES.md` Phases 5-6).
 
 #### Draw order (back to front):
 
@@ -373,21 +382,20 @@ _draw() → picks preview_sim or confirmed_sim → renders everything
 These are the most likely areas your team will want to modify:
 
 ### Easy wins:
-- **Tuning constants** (lines 7–30): grid size, unit count, turn count, deploy zones, objective positions
-- **Unit stats** (lines 32–80): change balance by editing INFANTRY/CAVALRY/etc. dicts (models, hp, move, oc, footprint, attacks, armor)
-- **Colors** (lines 82–95): change the visual palette
-- **Animation speed** (line 14): TURN_DURATION controls how fast turns play
+- **Tuning constants**: edit `.tres` files in the Godot Inspector — grid size, unit stats, combat config, terrain
+- **Colors**: search for `C_BG`, `C_P1`, etc. color constants in HexMoveDemo.gd
+- **Animation speed**: TURN_DURATION in HexMoveDemo.gd controls how fast turns play
 
 ### Medium complexity:
 - **Add an undo button** (pop last entry from placed_p1/p2, recalc sim)
-- **Improve the HUD** (lines 2978–3040): add more info, make it prettier
+- **Improve the HUD**: search for `_draw_hud` in HexMoveDemo.gd
 - **Add a timeline scrubber** so players can drag to see specific turns instead of watching the loop
 
-### Bigger changes:
+### Bigger changes (some in progress):
+- **Extract rendering** (Phase 5-6 of refactor) — move draw code into child Node2D scripts
 - **P2 AI** — right now P2 is a human clicking the top zone. Could auto-place randomly or with heuristics
-- **Switch to TileMapLayer** — replace the manual hex drawing with Godot's built-in tilemap system for better performance and editor integration
-- **Split into multiple files** — extract hex math, simulation, and rendering into separate scripts
-- **Performance**: `build_astar()` inside `find_path()` (line ~220) rebuilds the graph per call — should rebuild once per turn
+- **Switch to TileMapLayer** — replace manual hex drawing with GPU-batched tilemap (TileMapLayer child already exists as placeholder)
+- **Performance**: `build_astar()` inside `find_path()` rebuilds the graph per call — should rebuild once per turn
 - **Larger maps**: the current 56×40 grid could scale further if needed
 
 ---
@@ -436,7 +444,7 @@ You can run the full simulation without the Godot GUI using the headless sim too
 ### Files
 | File | Purpose |
 |------|---------|
-| `HeadlessSim.gd` | Node script — reads `deploy.json`, runs `simulate()`, writes output |
+| `HeadlessSim.gd` | Node script — reads `deploy.json`, creates `CombatSimulator.new()`, runs `simulate()`, writes output |
 | `HeadlessSim.tscn` | Minimal scene with `HeadlessSim.gd` attached |
 | `deploy.json` | Deployment config — army compositions and hex positions |
 

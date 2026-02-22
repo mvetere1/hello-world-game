@@ -1,0 +1,35 @@
+[gd_resource type="Resource" script_class="UnitStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/resources/unit_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Archer"
+unit_type_key = "archer"
+prefix = "W"
+models = 8
+fixed_footprint = 0
+move_speed = 16
+attack_range = 24
+targets_furthest = false
+attacks = 2
+hit = 3
+wound = 2
+rend = 0
+damage = 1
+has_melee_override = true
+melee_attacks = 1
+melee_hit = 5
+melee_wound = 5
+melee_rend = 0
+melee_damage = 1
+hp = 2
+armor = 5
+oc = 1
+can_deep_strike = false
+can_retreat = true
+retreat_move = 16
+aggro_range = 0
+idle_frames = 6
+run_frames = 4
+sprite_size = 192

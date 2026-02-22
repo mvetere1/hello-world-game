@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="TerrainType" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/resources/terrain_type.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+terrain_name = "Water"
+terrain_key = "water"
+passable = false
+move_cost = 1.0
+cover_bonus = 0
+blocks_los = false
+tile_color = Color(0.10, 0.20, 0.45, 1.0)

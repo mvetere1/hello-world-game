@@ -1,6 +1,8 @@
 # Refactor Plan: Single-File → Godot Node Architecture
 
-## Why this exists
+> **SUPERSEDED** — This plan was written when the file was ~1,400 lines. The file is now ~3,900 lines and we're actively refactoring on the `godot-refactor` branch. See **REFACTOR-NOTES.md** for the current plan and progress.
+
+## Why this exists (original context)
 `HexMoveDemo.gd` is a ~1,400-line single file containing all game logic, rendering, input, and UI. This works for prototyping but blocks the team from:
 - Working on UI without risking simulation code
 - Using the Godot editor's scene tree to inspect/toggle/rearrange components

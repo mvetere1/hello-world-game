@@ -10,8 +10,13 @@
 **If a new feature introduces randomness, it must be previewable, local, and player-controllable. No exceptions.**
 
 ## Project
-Godot 4.6 hex tactics demo. Single-file architecture for now.
-- Main scene: `HexMoveDemo.tscn` → `HexMoveDemo.gd`
+Godot 4.6 hex tactics demo. Multi-file architecture (refactor in progress — see `REFACTOR-NOTES.md`).
+- Main scene: `HexMoveDemo.tscn` → `HexMoveDemo.gd` (2,965 lines — orchestrator, state, input, rendering, HUD)
+- `scripts/hex_math.gd` — static pure hex math (94 lines)
+- `scripts/combat_simulator.gd` — simulation, AI, pathfinding, combat (948 lines)
+- `scripts/resources/*.gd` — UnitStats, GridConfig, BattleConfig, TerrainType resource classes
+- `resources/**/*.tres` — 5 unit configs + 2 game configs + 3 terrain types (editable in Inspector)
+- `HeadlessSim.gd` — CLI simulation runner (uses CombatSimulator directly)
 - Grid: **56 cols × 40 rows**, **FLAT-TOP hex, odd-q offset**
 - 8 units per player, free pick from 5 types: Infantry, Cavalry, Artillery, Deep Strike, Archer
 - Multi-hex formations: units occupy ceil(models/2) hexes (compact cluster). Artillery has fixed 5-hex footprint. Formations shrink as models die (front-line hexes released first).
@@ -223,7 +228,7 @@ Previously, if no other unit's fate changed, the popup only said "Timeline shift
 
 ## Headless Simulation CLI Tool
 Three files enable running the simulation without the Godot GUI:
-- `HeadlessSim.gd` — Node script that reads `deploy.json`, instantiates HexMoveDemo, calls `simulate()`, writes results
+- `HeadlessSim.gd` — Node script that reads `deploy.json`, creates `CombatSimulator.new()`, calls `simulate()`, writes results
 - `HeadlessSim.tscn` — Minimal scene with HeadlessSim.gd attached
 - `deploy.json` — Deployment config (army compositions + hex positions)
 

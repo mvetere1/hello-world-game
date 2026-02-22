@@ -1,0 +1,35 @@
+[gd_resource type="Resource" script_class="UnitStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/resources/unit_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Artillery"
+unit_type_key = "artillery"
+prefix = "A"
+models = 1
+fixed_footprint = 5
+move_speed = 8
+attack_range = 40
+targets_furthest = true
+attacks = 4
+hit = 4
+wound = 2
+rend = 1
+damage = 3
+has_melee_override = true
+melee_attacks = 1
+melee_hit = 5
+melee_wound = 4
+melee_rend = 0
+melee_damage = 1
+hp = 12
+armor = 4
+oc = 1
+can_deep_strike = false
+can_retreat = false
+retreat_move = 0
+aggro_range = 0
+idle_frames = 6
+run_frames = 4
+sprite_size = 192

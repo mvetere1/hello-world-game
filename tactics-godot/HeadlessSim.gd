@@ -20,7 +20,7 @@ const DEPLOY_C_MAX = 51
 const UNITS_PER_SIDE = 8
 
 func _ready():
-	var hex_demo: Node2D = load("res://HexMoveDemo.gd").new()
+	var sim := CombatSimulator.new()
 
 	# Read deploy.json
 	var deploy_path = "res://deploy.json"
@@ -74,7 +74,7 @@ func _ready():
 	print("Simulating %d units (%d Blue, %d Red)..." % [input_units.size(), blue_units.size(), red_units.size()])
 
 	# Run simulation
-	var result = hex_demo.simulate(input_units)
+	var result = sim.simulate(input_units)
 
 	# Build output
 	var output = _build_output(result, input_units)
@@ -98,9 +98,6 @@ func _ready():
 
 	# Print summary to stdout
 	_print_summary(output)
-
-	# Free the HexMoveDemo instance to avoid leak warnings
-	hex_demo.free()
 
 	get_tree().quit(0)
 

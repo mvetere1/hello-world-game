@@ -1,0 +1,35 @@
+[gd_resource type="Resource" script_class="UnitStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/resources/unit_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Infantry"
+unit_type_key = "infantry"
+prefix = "I"
+models = 10
+fixed_footprint = 0
+move_speed = 10
+attack_range = 0
+targets_furthest = false
+attacks = 2
+hit = 3
+wound = 3
+rend = 1
+damage = 1
+has_melee_override = false
+melee_attacks = 1
+melee_hit = 5
+melee_wound = 4
+melee_rend = 0
+melee_damage = 1
+hp = 2
+armor = 4
+oc = 1
+can_deep_strike = false
+can_retreat = false
+retreat_move = 0
+aggro_range = 0
+idle_frames = 8
+run_frames = 6
+sprite_size = 192

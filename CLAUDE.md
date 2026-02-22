@@ -5,14 +5,21 @@
 ball-cannon/          HTML5 canvas ball cannon prototype
 tactics/              HTML5 canvas tactics prototype  (prototype.html)
 tactics-godot/        Godot 4.6 hex tactics demo      (main active project)
-  HeadlessSim.gd/tscn  Headless CLI sim tool (godot --headless res://HeadlessSim.tscn)
+  HexMoveDemo.gd       Main orchestrator (2,965 lines — state, input, rendering, HUD)
+  scripts/
+    hex_math.gd         Static pure hex math (94 lines)
+    combat_simulator.gd Simulation, AI, pathfinding, combat (948 lines)
+    resources/          Resource class definitions (UnitStats, GridConfig, etc.)
+  resources/            .tres config files (units, grid, battle, terrain)
+  HeadlessSim.gd/tscn   Headless CLI sim tool (uses CombatSimulator directly)
   deploy.json           Deployment config for headless sim
+  REFACTOR-NOTES.md     Refactor plan and progress (Phases 0-4 done, 5-6 TODO)
 GAME-DESIGN-DOCUMENT.md
 ```
 
 ## Active focus
-`tactics-godot/` — Godot 4.6 point-and-click hex tactics demo.
-See `tactics-godot/CLAUDE.md` for all Godot-specific rules.
+`tactics-godot/` — Godot 4.6 hex tactics demo, multi-file architecture (refactor in progress).
+See `tactics-godot/CLAUDE.md` for Godot-specific rules, `tactics-godot/REFACTOR-NOTES.md` for refactor status.
 
 ## Core design principle
 **RNG as Terrain, Not Chaos.** Randomness creates unique game states, but the player makes intelligent decisions to alter outcomes. All RNG must be previewable, local, and player-controllable. See `tactics-godot/GAME-DESIGN-DOCUMENT.md` for full philosophy.
