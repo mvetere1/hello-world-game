@@ -168,6 +168,10 @@ DONE    → all units placed; animation loops; REPLAY button available
 ```
 Reads `deploy.json`, outputs `user://results.json` and `user://combat_log.txt`.
 
+## Housekeeping Rules
+- **Never leave temporary prompt files behind** (e.g., `PHASE5-PROMPT.md`, `PHASE6-PROMPT.md`). When a phase is done or skipped, delete its handoff prompt. The only persistent planning doc is `REFACTOR-NOTES.md`.
+- **REFACTOR-NOTES.md is the single source of truth** for architecture and migration status. Do not create separate plan files that duplicate or contradict it.
+
 ## Known Mistakes (do not repeat)
 1. **Ternary with `?:`** — GDScript uses `value if cond else fallback`
 2. **`build_astar()` inside `find_path()`** — rebuilds on every call. Fix: rebuild once per turn.
