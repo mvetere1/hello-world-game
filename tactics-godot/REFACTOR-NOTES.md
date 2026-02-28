@@ -1,75 +1,157 @@
-# Godot Refactor Notes — Developer Toolkit Architecture
+# Godot Refactor Notes — Developer Testing Toolkit
 
 > **Branch:** `godot-refactor` (branched from `tactics-prototype` at tag `prototype-v1`)
 > **Started:** 2026-02-22
-> **Goal:** Transform the single-file prototype into a proper Godot-native developer toolkit
+> **Focus shift:** 2026-02-27 — reframed as **developer testing tool**, not game prototype
+> **Goal:** A Godot-native toolkit that 4 teammates can use to test game feel and balance
+
+---
+
+## Project Focus
+
+This is a **developer testing tool**, not a shipped game. The final game design is uncertain — we don't know which variation or permutation will be the product. This tool lets the team rapidly experiment with:
+
+- Grid dimensions, deployment zones, objective positions
+- Unit stats, formation rules, combat mechanics
+- Terrain types and their gameplay effects
+- AI behavior, pathfinding, movement patterns
+- Visual presentation (view modes, trails, animations)
+
+**The tool must work within Godot's structure** using Godot best practices: TileMapLayer for hex grids, Control nodes for HUD, @export for configuration, @tool for editor preview, signals for decoupling, Resources for data.
 
 ---
 
 ## The Three Goals
 
-### 1. Everything Tweakable by Developers
-Every gameplay value — hex grid size, deployment zones, melee range, unit stats, formation sizes, objective positions, VP scoring — must be editable from the Godot Inspector without touching code.
+### 1. Everything Tweakable Without Code
+Every gameplay value — hex grid size, deployment zones, melee range, unit stats, formation sizes, objective positions, VP scoring, colors, animation speeds — must be editable from the Godot Inspector without touching code.
 
 **Godot tools:** Custom Resources (`.tres` files), `@export` annotations with ranges/groups, `@tool` scripts for live preview.
 
-### 2. Collidable Terrain
-The hex grid needs terrain types that affect gameplay: blocking movement, modifying combat, creating tactical decisions. Terrain is painted in the editor, not hardcoded.
+### 2. Godot-Native Architecture
+Use Godot's built-in tools instead of reinventing them:
+- **TileMapLayer** for hex grid rendering (not draw_* calls for 2,240 tiles/frame)
+- **Control nodes** for HUD panels (not draw_rect/draw_string)
+- **CanvasLayer** for UI (separate coordinate space from world)
+- **Signals** for node communication (not parent references)
+- **Scenes** for composable UI components
 
-**Godot tools:** TileMapLayer with hex tileset, custom data layers (terrain_type, move_cost, cover_bonus), AStar2D weight integration.
+**Exception:** Dynamic per-frame visuals (trails, tokens, combat sparks) stay as draw_* — Control nodes aren't suited for this.
 
 ### 3. Team Collaboration
-The architecture must let multiple developers work simultaneously without merge conflicts. Designers edit data, programmers edit logic, artists edit visuals — all independently.
+4 teammates work simultaneously without merge conflicts:
 
-**Godot tools:** Scene composition (one person per scene), Resources as the data bridge, signals for decoupling, separate `.tres` files for balance data.
+| Role | Edits | Files touched |
+|------|-------|---------------|
+| **Designer** | Unit stats, grid size, terrain, combat rules | `.tres` files in `resources/` |
+| **Artist** | Sprites, tileset, UI theme | `sprites/`, `terrain/`, `.tres` texture fields, theme resource |
+| **Programmer** | Simulation logic, AI, new systems | `scripts/*.gd`, controller scripts |
+| **Tester** | Deploy configs, headless sim runs, benchmarks | `deploy.json`, `sim_results/` |
 
 ---
 
-## Current State (post Phase 4)
+## Current State (post Phase 5)
 
 | File | Lines | Role |
 |------|-------|------|
-| `HexMoveDemo.gd` | 2,965 | Orchestrator: state, input, deploy, rendering, HUD |
+| `HexMoveDemo.gd` | 2,171 | Orchestrator: state, input, deploy, HUD drawing |
+| `scripts/battle_renderer.gd` | 862 | Child Node2D: tiles, trails, tokens, sim rendering |
 | `scripts/hex_math.gd` | 94 | Pure hex math (static class) |
 | `scripts/combat_simulator.gd` | 948 | Simulation, AI, pathfinding, combat |
 | `scripts/resources/*.gd` | 4 files | UnitStats, GridConfig, BattleConfig, TerrainType |
 | `resources/**/*.tres` | 10 files | 5 units + 2 config + 3 terrain |
 | `HeadlessSim.gd` | 304 | CLI simulation runner (uses CombatSimulator directly) |
 
-**Solved:** Unit stats editable in Inspector, config values in `.tres` files, simulation engine decoupled.
-**Remaining:** Rendering and HUD still inline in HexMoveDemo.gd (~1,900 lines). Need Phases 5-6.
+**Solved:** Unit stats editable in Inspector, config values in `.tres` files, simulation engine decoupled, battle rendering extracted.
+
+**Anti-patterns remaining:**
+1. All HUD drawn via draw_* calls — no Control nodes, no theming
+2. All state lives in HexMoveDemo.gd — child nodes reach back via `_parent.xxx`
+3. Colors hardcoded as `const` — not editable in Inspector
+4. Tiles drawn per-frame in code (2,240 draw calls) — TileMapLayer exists but unused visually
+5. No signals — tight coupling between nodes
 
 ---
 
 ## Target Architecture
 
 ### Scene Tree
+
 ```
-BattleScene (Node2D)
-├── HexGrid (Node2D, @tool)
-│   ├── TerrainLayer (TileMapLayer)      — hex tiles, terrain types
-│   ├── OverlayLayer (TileMapLayer)      — deploy zones, movement highlights
-│   └── Pathfinder (Node)                — owns AStar2D, rebuilds per turn
-├── UnitManager (Node2D)
-│   └── [Unit instances as children]     — Unit.tscn scenes
-├── CombatManager (Node)                 — simulate(), combat rolls, AI
-├── HUDLayer (CanvasLayer)
-│   ├── Scoreboard.tscn
-│   ├── FateChart.tscn
-│   ├── CombatLog.tscn
-│   └── DeployPopup.tscn
-├── TrailRenderer (Node2D)               — ghost trails, disruption visuals
-├── DeployController (Node)              — input handling, placement
-└── ReplayController (Node)              — replay mode
+BattleTestbed (Node2D)                    — root scene, thin orchestrator
+│
+├── GameState (Node)                      — all mutable state + signals
+│   Signals:
+│     sim_changed()
+│     phase_changed(phase: int)
+│     hover_changed(hex: Vector2i)
+│     view_mode_changed(mode: int)
+│     unit_placed(uid: int)
+│     replay_changed(turn: int)
+│
+├── HexGrid (Node2D, @tool)              — hex grid visualization
+│   ├── TerrainLayer (TileMapLayer)      — hex tiles, terrain types (GPU-batched)
+│   └── OverlayLayer (Node2D)           — deploy zones, obj auras, hover, heatmap
+│
+├── BattleRenderer (Node2D)              — trails, tokens, combat sparks
+│   (keeps draw_* — highly dynamic per-frame rendering)
+│
+├── SimulationBridge (Node)              — wraps CombatSimulator, manages sim lifecycle
+│
+├── DeployController (Node)              — input handling, placement, preview
+│
+├── ReplayController (Node)              — replay mode state + navigation
+│
+├── HUD (CanvasLayer)                    — all UI in separate coordinate space
+│   ├── TopBar (HBoxContainer)           — phase info, VP, view mode buttons
+│   ├── Scoreboard (PanelContainer)      — VP per turn table
+│   ├── FateChart (PanelContainer)       — per-unit stats chart
+│   ├── CombatLog (PanelContainer)       — scrollable play-by-play
+│   │   └── ScrollContainer + RichTextLabel
+│   ├── NarrativePanel (PanelContainer)  — preview unit's projected fate
+│   ├── TrailTooltip (PanelContainer)    — hover tooltip (follows cursor)
+│   ├── UnitSelectPopup (CenterContainer) — unit type selection modal
+│   ├── DSTurnSelectPopup (CenterContainer) — deep strike turn selection
+│   ├── ShiftSummaryPopup (CenterContainer) — timeline shifted popup
+│   │   └── ScrollContainer + RichTextLabel
+│   ├── BattleSummaryPopup (CenterContainer) — full battle summary
+│   │   └── ScrollContainer + RichTextLabel
+│   └── ViewModeTooltip (PanelContainer) — cursor-following hint
+│
+└── Config (Node)                        — preloads .tres resources, exposes API
 ```
 
-### Custom Resources (`.tres` files)
+### Signal Flow
+
+```
+DeployController ──writes──▶ GameState ◀──reads── BattleRenderer
+      │                          │                       │
+      │ calls                    │ signals:              │
+      ▼                          │                       ▼
+SimulationBridge                 │ sim_changed ───▶ Scoreboard, FateChart,
+      │                          │                  CombatLog, BattleRenderer
+      ▼                          │
+CombatSimulator                  │ phase_changed ──▶ TopBar, DeployController
+(RefCounted)                     │
+                                 │ hover_changed ──▶ BattleRenderer,
+                                 │                    TrailTooltip
+                                 │
+                                 │ view_mode_changed ──▶ BattleRenderer
+                                 │
+                                 │ unit_placed ──▶ ShiftSummaryPopup
+                                 │
+                                 │ replay_changed ──▶ BattleRenderer,
+                                 │                     TopBar
+```
+
+### Custom Resources
+
 ```
 resources/
 ├── config/
-│   ├── grid_config.tres        — COLS, ROWS, HEX_SIZE, deploy zones
+│   ├── grid_config.tres        — COLS, ROWS, HEX_SIZE, deploy zones, objectives
 │   ├── battle_config.tres      — COMBAT_RANGE, OC_RADIUS, CAVALRY_AGGRO, VP rules
-│   └── camera_config.tres      — initial zoom, pan speed, bounds
+│   └── visual_config.tres      — colors, font sizes, trail opacities, animation speeds (NEW)
 ├── units/
 │   ├── infantry.tres           — all Infantry stats
 │   ├── cavalry.tres
@@ -79,88 +161,91 @@ resources/
 └── terrain/
     ├── grass.tres              — move_cost=1, cover=0, passable=true
     ├── forest.tres             — move_cost=2, cover=1, passable=true
-    ├── water.tres              — passable=false
-    ├── mountain.tres           — passable=false, blocks_los=true
-    └── ruins.tres              — move_cost=1, cover=2, passable=true
+    └── water.tres              — passable=false
 ```
 
-### Resource Class Definitions
-```
-scripts/resources/
-├── unit_stats.gd              — class_name UnitStats extends Resource
-├── grid_config.gd             — class_name GridConfig extends Resource
-├── battle_config.gd           — class_name BattleConfig extends Resource
-├── terrain_type.gd            — class_name TerrainType extends Resource
-└── camera_config.gd           — class_name CameraConfig extends Resource
-```
+### New Resource: VisualConfig
 
-### Autoloads (global singletons)
-```
-GameState (autoload)           — current phase, turn, active player, placed units
-HexMath (autoload)             — pure hex coordinate math (reads GridConfig)
+```gdscript
+class_name VisualConfig extends Resource
+
+@export_group("Team Colors")
+@export var color_p1: Color = Color(0.28, 0.58, 1.00)
+@export var color_p2: Color = Color(1.00, 0.35, 0.28)
+
+@export_group("World Colors")
+@export var color_background: Color = Color(0.07, 0.10, 0.18)
+@export var color_hex_fill: Color = Color(0.11, 0.16, 0.26)
+@export var color_hex_stroke: Color = Color(0.20, 0.28, 0.42)
+@export var color_combat: Color = Color(1.00, 0.75, 0.10)
+@export var color_banner: Color = Color(0.85, 0.78, 0.32)
+
+@export_group("Trail Visuals")
+@export_range(0.0, 1.0) var trail_ghost_alpha: float = 0.60
+@export_range(0.0, 1.0) var trail_ribbon_alpha: float = 0.6
+@export_range(0.1, 2.0) var trail_ribbon_width: float = 0.7
+
+@export_group("Animation")
+@export_range(0.1, 2.0) var turn_duration: float = 0.8
+@export_range(0.1, 2.0) var full_mode_speed: float = 0.3
 ```
 
 ---
 
-## Key Godot Patterns We'll Use
-
-### Custom Resources with @export
-```gdscript
-class_name UnitStats
-extends Resource
-
-@export_group("Identity")
-@export var display_name: String = ""
-@export var sprite_idle: Texture
-@export var sprite_run: Texture
-
-@export_group("Formation")
-@export_range(1, 20) var models: int = 10
-@export_range(1, 10, 1, "suffix:hex") var formation_hexes: int = 5
-
-@export_group("Movement")
-@export_range(0, 50, 1, "suffix:hex") var move_speed: int = 10
-
-@export_group("Combat — Offense")
-@export_range(1, 6) var weapon_skill: int = 3
-@export_range(1, 6) var ballistic_skill: int = 4
-@export_range(1, 10) var strength: int = 3
-@export_range(1, 6) var attacks: int = 1
-@export_range(0, 3) var rend: int = 0
-@export_range(1, 3) var damage: int = 1
-@export_range(0, 50, 1, "suffix:hex") var attack_range: int = 0
-
-@export_group("Combat — Defense")
-@export_range(1, 10) var toughness: int = 3
-@export_range(1, 6) var armor_save: int = 5
-@export_range(1, 5) var wounds: int = 1
-
-@export_group("Special Rules")
-@export var can_deep_strike: bool = false
-@export var can_retreat: bool = false
-@export_range(0, 50, 1, "suffix:hex") var retreat_range: int = 0
-@export_range(0, 50, 1, "suffix:hex") var aggro_range: int = 0
-```
+## Key Godot Patterns
 
 ### TileMapLayer for Hex Grid
 - Tile Shape: Hexagon, Flat Top, Odd Column offset
-- Custom Data Layers: `terrain_type` (Resource), `move_cost` (float), `cover_bonus` (int)
+- Custom Data Layers: `terrain_type` (String), `move_cost` (float), `cover_bonus` (int)
 - `local_to_map()` / `map_to_local()` replace manual `pixel_to_hex()` / `hex_to_pixel()`
 - GPU-batched rendering replaces 2,240 per-frame draw calls
 
+### Control Nodes for HUD
+- **CanvasLayer** separates UI from world — no cam_offset/cam_zoom math needed
+- **PanelContainer** for bordered panels with automatic sizing
+- **RichTextLabel** for colored text (combat log, summary popups)
+- **GridContainer** for tabular data (scoreboard, fate chart)
+- **ScrollContainer** for scrollable content (combat log, summaries)
+- **Godot Theme resource** for consistent styling across all panels
+
+### @export for Inspector Editability
+```gdscript
+@export_category("Grid")
+@export_range(8, 100) var cols: int = 56
+@export_range(8, 100) var rows: int = 40
+```
+
 ### @tool for Editor Preview
-- HexGrid.gd as `@tool` — see grid in editor, adjust size live
-- Deploy zone visualization without running the game
-- Objective position preview
+- HexGrid.gd as `@tool` — see grid and deploy zones in editor
+- Objective positions preview without running the game
 
 ### Signals for Decoupling
+```gdscript
+# GameState.gd
+signal sim_changed()
+signal phase_changed(phase: int)
+signal hover_changed(hex: Vector2i)
+signal view_mode_changed(mode: int)
+signal unit_placed(uid: int)
+signal replay_changed(turn: int)
 ```
-GameState.phase_changed(phase)
-GameState.turn_started(turn)
-GameState.unit_placed(uid)
-GameState.sim_changed()
-GameState.hover_changed(hex)
-```
+
+---
+
+## What STAYS as draw_* Code
+
+These are highly dynamic, per-frame rendering — Control nodes would make them worse:
+
+- **Spacetime worm trails** — ribbons, ghost tokens, caterpillar taper
+- **Combat sparks** — crossed swords at combat locations
+- **Disruption visuals** — jagged purple lines, X marks
+- **Trail hover glow** — bright formation hex highlights
+- **Changed mode crossfade** — old/new path animation
+- **Fate icons during preview** — sword/death/survival on map
+- **Unit tokens** — sprite-based rendering with frame animation
+- **Deploy overlay tints** — objective auras, zone highlights, heatmap
+
+All of these stay in BattleRenderer (Node2D with draw_*).
 
 ---
 
@@ -190,56 +275,100 @@ Each hex tile has a `TerrainType` resource attached via TileMapLayer custom data
 
 ## Refactor Phases
 
-### Phase 0: Resource Definitions — DONE
+### Completed Phases (Foundation)
+
+#### Phase 0: Resource Definitions — DONE
 Created 4 Resource class scripts (`UnitStats`, `GridConfig`, `BattleConfig`, `TerrainType`) and 10 `.tres` files (5 units + 2 config + 3 terrain). All pass syntax check.
 
-### Phase 1: Resource Bridge — DONE
+#### Phase 1: Resource Bridge — DONE
 Replaced all `const` blocks at the top of HexMoveDemo.gd with resource-backed property getters. Game logic unchanged — still references `COLS`, `COMBAT_RANGE`, etc., but values now come from `.tres` files.
 
-### Phase 2: Terrain System — DONE
+#### Phase 2: Terrain System — DONE
 Added `terrain_data.json`, terrain query functions, terrain tint overlay in `_draw_tile()`, passability checks in deploy logic. TileMapLayer child node added to scene (placeholder for future tile-based rendering).
 
-### Phase 3: Extract HexMath — DONE
+#### Phase 3: Extract HexMath — DONE
 Extracted pure hex math into `scripts/hex_math.gd` (94 lines). Static `class_name HexMath` — no scene tree dependency. HexMoveDemo keeps one-line wrapper functions so call sites don't change.
 
-### Phase 4: Extract CombatSimulator — DONE
+#### Phase 4: Extract CombatSimulator — DONE
 Extracted simulation engine into `scripts/combat_simulator.gd` (948 lines). `class_name CombatSimulator extends RefCounted` — owns AStar2D, AI targeting, combat rolls, and the main `simulate()` loop. HeadlessSim.gd now uses CombatSimulator directly. HexMoveDemo keeps thin wrappers.
 
-**Current state:** HexMoveDemo.gd is 2,965 lines (down from 3,926). All tests pass, headless sim produces identical results.
+#### Phase 5: Extract BattleRenderer — DONE
+Extracted 862 lines of battle drawing code into `scripts/battle_renderer.gd` as a child Node2D at z_index=-1. BattleRenderer reads state from `_parent` (HexMoveDemo). HexMoveDemo._draw() now only handles HUD overlays.
 
-### Phase 5: Extract BattleRenderer — TODO
-Move ~670 lines of battle drawing code (`_draw_tile`, `_draw_sim`, `_draw_replay`, `_draw_single_timeline`, token rendering, etc.) into `scripts/battle_renderer.gd` as a child Node2D at z_index=0. Pre-step: move `_obj_control` writes from `_draw()` to `_process()`.
+#### Phase 6: Extract HUDRenderer (Node2D) — SKIPPED
+> Originally planned as another Node2D child with draw_* calls. **Skipped in favor of Phase 7** (Control nodes). The draw_*-based HUD was an intermediate step that would have been thrown away. Going directly to Control nodes is the right approach.
 
-### Phase 6: Extract HUDRenderer — TODO
-Move ~1250 lines of UI drawing code (`_draw_hud`, `_draw_scoreboard`, `_draw_unit_fate`, `_draw_combat_log`, `_draw_battle_summary`, `_draw_unit_select`, popups, tooltips, and data generation helpers) into `scripts/hud_renderer.gd` as a child Node2D at z_index=10. Pre-step: move scroll clamp logic from `_draw()` to `_process()`.
+### Migration Phases (Godot-Native Architecture)
 
-### Future: TileMapLayer Rendering
-Replace `_draw_tile()` with GPU-batched TileMapLayer rendering. Set up hex tileset with terrain custom data layers. Currently hex tiles are drawn per-frame in code; TileMapLayer would eliminate 2,240 draw calls.
+#### Phase 7: GameState Extraction — TODO
+- Create `scripts/game_state.gd` (`class_name GameState extends Node`)
+- Move all mutable state vars from HexMoveDemo.gd into GameState
+- Add signals: `sim_changed`, `phase_changed`, `hover_changed`, `view_mode_changed`, `unit_placed`, `replay_changed`
+- Update BattleRenderer: change `_parent.xxx` refs to `_state.xxx` refs
+- **Risk:** Highest-risk phase — touches every file. Must preserve exact behavior.
 
-### Future: Extract Controllers
-Move input handling, deploy logic, replay logic into separate nodes for full scene composition.
+#### Phase 8: VisualConfig Resource — TODO
+- Create `scripts/resources/visual_config.gd` (`class_name VisualConfig extends Resource`)
+- @export all colors (C_BG, C_P1, C_P2, etc.), font sizes, trail opacities, animation params
+- Create `resources/config/visual_config.tres`
+- Replace hardcoded color consts in HexMoveDemo.gd and battle_renderer.gd
+- **Low risk:** Pure data extraction, no logic changes.
+
+#### Phase 9: HUD → Control Nodes — TODO
+- Create `scenes/hud/` directory with `.tscn` files for each panel
+- Build each panel as a Godot Control node tree (PanelContainer, Label, GridContainer, etc.)
+- Each panel has a script that connects to GameState signals
+- Remove corresponding draw_* functions from HexMoveDemo.gd (~670 lines)
+- Use a Godot Theme resource for consistent styling
+- **Highest-effort phase.** Do one panel at a time, test after each.
+
+Panels in priority order:
+1. TopBar — simple, high visibility
+2. UnitSelectPopup + DSTurnSelectPopup — modal popups, clear Control node fit
+3. Scoreboard — tabular data, GridContainer
+4. FateChart — tabular, similar to scoreboard
+5. CombatLog — ScrollContainer + RichTextLabel
+6. TrailTooltip — small, cursor-following
+7. NarrativePanel — text list
+8. ShiftSummaryPopup — modal with scroll
+9. BattleSummaryPopup — modal with scroll
+10. ViewModeTooltip — cursor-following
+
+#### Phase 10: Controller Extraction — TODO
+- Create `scripts/deploy_controller.gd` — input handling, placement logic
+- Create `scripts/replay_controller.gd` — replay navigation
+- Move `_input()` logic out of HexMoveDemo.gd
+- Controllers write to GameState, other nodes react via signals
+
+#### Phase 11: TileMapLayer Visual Migration — TODO
+- Configure existing TerrainLayer TileMapLayer for visual rendering
+- Set up hex tileset with terrain-specific tiles in Godot editor
+- Remove `_draw_tile()` from battle_renderer.gd (~95 lines)
+- Eliminate 2,240 per-frame draw calls
+- Keep OverlayLayer (Node2D) for dynamic highlights (deploy zones, hover, heatmap)
+
+#### Phase 12: @tool Editor Preview — TODO
+- Add `@tool` to HexGrid script — see grid in editor
+- Deploy zone visualization without running game
+- Objective position preview in editor
 
 ---
 
-## Developer Toolkit Philosophy
+## Decisions Log
 
-This isn't just a game — it's a **prototyping toolkit** for the design team:
+### 2026-02-22
+- **simulate() stays pure** — single function, input in / result out
+- **No custom map editor** — objectives and deploy zones in GridConfig.tres, edited in Inspector
+- **HeadlessSim updated** — uses `CombatSimulator.new()` directly
+- **Terrain v1: grass, forest, water** — more types later
+- **Terrain tiles painted in TileMapLayer** — editor workflow, not code
 
-- **Designers** tweak `.tres` files in the Inspector to balance units, adjust grid size, modify terrain
-- **Artists** swap sprites by dragging textures into resource fields
-- **Programmers** work on systems (combat, AI, pathfinding) in isolated scripts
-- **Everyone** can branch off `godot-refactor` and experiment without breaking each other's work
-
-The goal is that creating a new unit type, changing the grid dimensions, or adding a terrain type requires **zero code changes** — just editor work.
-
----
-
-## Decisions (2026-02-22)
-- **simulate() stays pure** — single function, input in / result out. Event logging can wrap it later.
-- **No custom map editor** — objectives and deploy zones live in GridConfig.tres, edited in Inspector.
-- **HeadlessSim updated** — now uses `CombatSimulator.new()` directly instead of loading HexMoveDemo.gd.
-- **Terrain v1: grass, forest, water** — grass = normal, forest = slow + cover, water = impassable. More types later.
-- **Terrain tiles painted in TileMapLayer** — editor workflow, not code.
+### 2026-02-27
+- **Project reframed as developer testing tool** — not a game prototype
+- **Phase 6 (Node2D HUDRenderer) skipped** — going directly to Control nodes
+- **All visual features preserved** — 4 view modes, spacetime worms, all UI panels
+- **Docs updated first, then architecture** — align team before writing code
+- **Dynamic rendering stays as draw_*** — trails, tokens, sparks not suited for Control nodes
 
 ---
 
@@ -250,3 +379,6 @@ The goal is that creating a new unit type, changing the grid dimensions, or addi
 - [TileMapLayer](https://docs.godotengine.org/en/stable/classes/class_tilemaplayer.html)
 - [AStar2D](https://docs.godotengine.org/en/stable/classes/class_astar2d.html)
 - [@tool Scripts](https://docs.godotengine.org/en/stable/tutorials/plugins/running_code_in_the_editor.html)
+- [Control Nodes](https://docs.godotengine.org/en/stable/tutorials/ui/index.html)
+- [CanvasLayer](https://docs.godotengine.org/en/stable/classes/class_canvaslayer.html)
+- [Signals](https://docs.godotengine.org/en/stable/getting_started/step_by_step/signals.html)

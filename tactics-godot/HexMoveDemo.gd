@@ -343,6 +343,7 @@ func _load_unit_sprites():
 				unit_sprites[p][ut] = {"idle": idle_tex, "run": run_tex}
 
 var _terrain_map: TileMapLayer = null
+var _battle_renderer: BattleRenderer = null
 var _terrain_sprites: Dictionary = {}  # terrain_key -> Texture2D
 var _cursor_hand: Texture2D = null
 var _cursor_nogo: Texture2D = null
@@ -375,6 +376,11 @@ func _ready():
 		HEX_SIZE * sqrt(3.0) * mid_row + (mid_col & 1) * HEX_SIZE * sqrt(3.0) * 0.5
 	)
 	cam_offset = vp * 0.5 - map_center * cam_zoom
+	# Battle renderer — child Node2D for tile/trail/token drawing
+	_battle_renderer = BattleRenderer.new()
+	_battle_renderer.init(self)
+	_battle_renderer.z_index = -1  # draw battle layer under HUD
+	add_child(_battle_renderer)
 	_recalc_confirmed_sim()
 	queue_redraw()
 
@@ -1351,28 +1357,47 @@ func _process(delta: float):
 	if _terrain_map:
 		_terrain_map.position = cam_offset
 		_terrain_map.scale = Vector2(cam_zoom, cam_zoom)
+
+	# Update objective control state (moved from _draw for purity)
+	if replay_mode:
+		var sim = confirmed_sim
+		if not sim.is_empty():
+			var obj_hist: Array = sim.get("obj_ctrl_history", [])
+			if replay_turn < obj_hist.size():
+				_obj_control = obj_hist[replay_turn]
+			else:
+				_obj_control = sim.get("obj_control", [0, 0, 0])
+	elif phase == Phase.DEPLOY and view_mode == ViewMode.FINAL:
+		var use_preview = (not preview_sim.is_empty())
+		var draw_sim = preview_sim if use_preview else confirmed_sim
+		if not draw_sim.is_empty():
+			_obj_control = draw_sim.get("obj_control", [0, 0, 0])
+	else:
+		var use_preview = (not preview_sim.is_empty()) and (phase == Phase.DEPLOY)
+		var draw_sim = preview_sim if use_preview else confirmed_sim
+		_obj_control = _compute_obj_control(draw_sim)
+
 	queue_redraw()   # every frame for smooth interpolation
+	if _battle_renderer:
+		_battle_renderer.queue_redraw()
 
 # ============================================================================
 # DRAWING
 # ============================================================================
 
 func _draw():
-	var vp = get_viewport_rect().size
-	if not _terrain_map:
-		draw_rect(Rect2(Vector2.ZERO, vp), C_BG)
+	# Battle drawing is handled by BattleRenderer (child Node2D at z_index=-1).
+	# This function draws HUD overlays on top.
 
 	if replay_mode:
-		_draw_replay()
-		return
+		return  # BattleRenderer handles replay drawing including replay HUD
 
-	# Choose which sim to display
 	var use_preview = (not preview_sim.is_empty()) and (phase == Phase.DEPLOY)
 	var draw_sim    = preview_sim if use_preview else confirmed_sim
+	var vp = get_viewport_rect().size
 
-	# Final state mode: show end-of-game positions, objectives, score
+	# FINAL mode: BattleRenderer draws battle, we draw HUD on top
 	if phase == Phase.DEPLOY and view_mode == ViewMode.FINAL:
-		_draw_final_state(draw_sim)
 		_draw_hud()
 		if show_analytics_ui:
 			_draw_scoreboard(draw_sim)
@@ -1419,29 +1444,7 @@ func _draw():
 			_draw_ds_turn_select()
 		return
 
-	_obj_control = _compute_obj_control(draw_sim)
-
-	# Viewport culling: only draw hexes visible on screen
-	var vp_rect = get_viewport_rect().size
-	var world_min = -cam_offset / cam_zoom
-	var world_max = (vp_rect - cam_offset) / cam_zoom
-	var hex_w = HEX_SIZE * 1.5
-	var hex_h = HEX_SIZE * sqrt(3.0)
-	var c_min = clampi(int(world_min.x / hex_w) - 2, 0, COLS - 1)
-	var c_max = clampi(int(world_max.x / hex_w) + 2, 0, COLS - 1)
-	var r_min = clampi(int(world_min.y / hex_h) - 2, 0, ROWS - 1)
-	var r_max = clampi(int(world_max.y / hex_h) + 2, 0, ROWS - 1)
-	for r in range(r_min, r_max + 1):
-		for c in range(c_min, c_max + 1):
-			_draw_tile(c, r)
-
-	# Dark fog overlay for CHANGED mode — dims tiles so only changes pop
-	if phase == Phase.DEPLOY and view_mode == ViewMode.CHANGED and not preview_sim.is_empty():
-		draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.70))
-
-	if not draw_sim.is_empty():
-		_draw_sim(draw_sim, use_preview)
-
+	# Normal mode: BattleRenderer draws tiles + sim, we draw HUD on top
 	_draw_hud()
 	if show_analytics_ui:
 		_draw_scoreboard(draw_sim)
@@ -1495,684 +1498,6 @@ func _draw():
 		_draw_unit_select()
 	elif phase == Phase.DEPLOY and ds_selecting_turn:
 		_draw_ds_turn_select()
-
-func _draw_tile(col: int, row: int):
-	var center = hex_to_pixel(col, row)
-	var corners = hex_corners(center)
-
-	# Draw base tile texture.
-	# The tile art has a flat hex face at the top and a 3D wall below.
-	# tw = full width (flat-top hex: 2*size), th = taller to include the wall.
-	# Offset rect upward so the face center sits at `center` and the wall hangs below.
-	if tile_tex:
-		var tw = HEX_SIZE * 2.0 * cam_zoom   # exact flat-top hex width
-		var th = HEX_SIZE * 2.2 * cam_zoom   # face + small wall extension
-		var dest = Rect2(center - Vector2(tw * 0.5, th * 0.35), Vector2(tw, th))
-		draw_texture_rect(tile_tex, dest, false)
-	elif not _terrain_map:
-		draw_colored_polygon(corners, C_FIELD)
-
-	# Outline
-	var outline_pts = PackedVector2Array(corners)
-	outline_pts.append(corners[0])
-	draw_polyline(outline_pts, Color(C_STROKE.r, C_STROKE.g, C_STROKE.b, 0.5), 0.5)
-
-	# Terrain sprite overlay (non-grass hexes)
-	var terrain = _get_terrain_at(col, row)
-	if terrain.terrain_key != "grass":
-		var t_sprite = _terrain_sprites.get(terrain.terrain_key)
-		if t_sprite:
-			var tw = HEX_SIZE * 2.0 * cam_zoom
-			var th = HEX_SIZE * 2.0 * cam_zoom
-			var dest = Rect2(center - Vector2(tw * 0.5, th * 0.5), Vector2(tw, th))
-			draw_texture_rect(t_sprite, dest, false)
-		else:
-			var t_tint = terrain.tile_color
-			t_tint.a = 0.35
-			draw_colored_polygon(corners, t_tint)
-		var t_outline = PackedVector2Array(corners)
-		t_outline.append(corners[0])
-		var t_color = Color(0.2, 0.5, 0.2) if terrain.terrain_key == "forest" else Color(0.2, 0.4, 0.7)
-		draw_polyline(t_outline, t_color, 2.5 * cam_zoom)
-
-	# Zone tint overlay
-	var tint = Color(0, 0, 0, 0)
-	if row >= P1_DEPLOY_ROWS_MIN and row <= P1_DEPLOY_ROWS_MAX and col >= DEPLOY_C_MIN and col <= DEPLOY_C_MAX:
-		var a = 0.30 if (active_player == 1 and phase == Phase.DEPLOY) else 0.10
-		tint = Color(C_P1.r, C_P1.g, C_P1.b, a)
-	elif row >= P2_DEPLOY_ROWS_MIN and row <= P2_DEPLOY_ROWS_MAX and col >= DEPLOY_C_MIN and col <= DEPLOY_C_MAX:
-		var a = 0.30 if (active_player == 2 and phase == Phase.DEPLOY) else 0.10
-		tint = Color(C_P2.r, C_P2.g, C_P2.b, a)
-
-	for i in OBJECTIVES.size():
-		var obj = OBJECTIVES[i]
-		var ctrl = _obj_control[i] if i < _obj_control.size() else 0
-		var ctrl_color = C_BANNER
-		if ctrl == 1: ctrl_color = C_P1
-		elif ctrl == 2: ctrl_color = C_P2
-		if hex_dist(col, row, obj.x, obj.y) <= OC_RADIUS:
-			tint = tint.lerp(Color(ctrl_color.r, ctrl_color.g, ctrl_color.b, 0.25), 0.5)
-		if col == obj.x and row == obj.y:
-			tint = Color(ctrl_color.r, ctrl_color.g, ctrl_color.b, 0.45)
-
-	if tint.a > 0.0:
-		draw_colored_polygon(corners, tint)
-
-	# VP heatmap overlay during deployment
-	if not deploy_heatmap.is_empty() and phase == Phase.DEPLOY and not selecting_unit and not ds_selecting_turn:
-		var hid = hex_id(col, row)
-		if deploy_heatmap.has(hid):
-			var vp_delta: int = deploy_heatmap[hid]
-			if vp_delta > 0 and _heatmap_max > 0:
-				var t = clampf(float(vp_delta) / _heatmap_max, 0.0, 1.0)
-				var intensity = lerpf(0.08, 0.7, t * t)
-				draw_colored_polygon(corners, Color(0.15, 1.0, 0.25, intensity))
-			elif vp_delta < 0 and _heatmap_min < 0:
-				var t = clampf(float(-vp_delta) / -_heatmap_min, 0.0, 1.0)
-				var intensity = lerpf(0.08, 0.7, t * t)
-				draw_colored_polygon(corners, Color(1.0, 0.15, 0.15, intensity))
-
-	# Deep strike legal hex highlighting
-	if deploy_unit_type == "deep_strike" and ds_arrival_turn > 0 and not selecting_unit and not ds_selecting_turn:
-		if ds_legal_hexes.has(hex_id(col, row)):
-			draw_colored_polygon(corners, Color(0.2, 0.8, 0.8, 0.12))
-		else:
-			draw_colored_polygon(corners, Color(0.8, 0.2, 0.2, 0.05))
-
-	# Hover highlight
-	if hover_hex.x == col and hover_hex.y == row:
-		draw_colored_polygon(corners, Color(1, 1, 1, 0.20))
-
-	# Objective flip glow (preview diff)
-	var obj_flips: Array = preview_diff.get("obj_flips", [])
-	for i in OBJECTIVES.size():
-		if i < obj_flips.size() and obj_flips[i]:
-			if hex_dist(col, row, OBJECTIVES[i].x, OBJECTIVES[i].y) <= OC_RADIUS:
-				draw_colored_polygon(corners, Color(1.0, 0.9, 0.2, 0.15))
-			if col == OBJECTIVES[i].x and row == OBJECTIVES[i].y:
-				var glow_pts = PackedVector2Array(corners)
-				glow_pts.append(corners[0])
-				draw_polyline(glow_pts, Color(1.0, 0.9, 0.2, 0.7), 2.5)
-
-	# Objective banner
-	for i in OBJECTIVES.size():
-		if OBJECTIVES[i] == Vector2i(col, row):
-			_draw_banner(center, i)
-
-func _draw_unit_final(uid: int, final_units: Array, timelines: Array, formations_tl: Array, is_ghost: bool, alpha: float):
-	var u = final_units[uid]
-	var trail: Array = timelines[uid]
-	var ftl: Array = formations_tl[uid] if uid < formations_tl.size() else []
-	var final_pos = Vector2i(-1, -1)
-	var final_idx := 0
-	if u.eliminated:
-		final_idx = mini(u.elim_turn, trail.size() - 1)
-		final_pos = trail[final_idx]
-	else:
-		final_idx = trail.size() - 1
-		final_pos = trail[final_idx]
-	if final_pos == Vector2i(-1, -1): return
-	var final_form: Array = ftl[final_idx] if final_idx < ftl.size() else [final_pos]
-	if u.eliminated:
-		for fh in final_form:
-			var center = hex_to_pixel(fh.x, fh.y)
-			var r = 8.0 * cam_zoom
-			draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
-				Color(0.9, 0.2, 0.2, 0.35 if is_ghost else 0.7), 2.5)
-			draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
-				Color(0.9, 0.2, 0.2, 0.35 if is_ghost else 0.7), 2.5)
-	else:
-		for fh in final_form:
-			var center = hex_to_pixel(fh.x, fh.y)
-			_draw_unit_token(center, u.player, u.models, u.unit_type, is_ghost, alpha)
-
-func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, formations_tl: Array, combat_ev: Array, display_turn: int, is_preview_unit: bool, _snail_trail: bool = false):
-	var u = final_units[uid]
-	var trail: Array = timelines[uid]
-	var ftl: Array = formations_tl[uid] if uid < formations_tl.size() else []
-	var alive_until = u.elim_turn if u.eliminated else TURNS
-	var max_ti = mini(alive_until + 1, trail.size() - 1)
-	var base = C_P1 if u.player == 1 else C_P2
-	var highlight_a = 0.25 if is_preview_unit else 0.30
-	# Path hex highlights — highlight all formation hexes per turn
-	for ti in (max_ti + 1):
-		var pos = trail[ti]
-		if pos == Vector2i(-1, -1): continue
-		var form: Array = ftl[ti] if ti < ftl.size() else [pos]
-		for fh in form:
-			var hc = hex_to_pixel(fh.x, fh.y)
-			var corners = hex_corners(hc)
-			draw_colored_polygon(corners, Color(base.r, base.g, base.b, highlight_a))
-	# Snail trail ribbon (uses anchor positions)
-	var ribbon_w = HEX_SIZE * (0.6 if is_preview_unit else 0.7) * cam_zoom
-	var ribbon_a = 0.50 if is_preview_unit else 0.6
-	var is_disrupted = u.disrupted and u.disrupted_turn >= 0
-	var disrupt_ti = (u.disrupted_turn + 1) if is_disrupted else -1
-	for ti in max_ti:
-		var from_pos = trail[ti]
-		var to_pos = trail[ti + 1]
-		if from_pos == to_pos: continue
-		if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
-		if is_disrupted and ti == disrupt_ti: continue  # skip ribbon at disruption
-		var pa = hex_to_pixel(from_pos.x, from_pos.y)
-		var pb = hex_to_pixel(to_pos.x, to_pos.y)
-		var dir = (pb - pa).normalized()
-		var perp = Vector2(-dir.y, dir.x) * ribbon_w
-		var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
-		draw_colored_polygon(quad, Color(base.r, base.g, base.b, ribbon_a))
-	# Disruption break visual
-	if is_disrupted and u.disrupted_from != Vector2i(-1, -1) and disrupt_ti < trail.size():
-		var yank_pos = trail[disrupt_ti] if disrupt_ti < trail.size() else Vector2i(u.col, u.row)
-		if yank_pos != Vector2i(-1, -1):
-			var pa = hex_to_pixel(u.disrupted_from.x, u.disrupted_from.y)
-			var pb = hex_to_pixel(yank_pos.x, yank_pos.y)
-			var disrupt_color = Color(0.8, 0.2, 1.0, 0.9)
-			var seg_len = 6.0 * cam_zoom
-			var total = pa.distance_to(pb)
-			if total > 0:
-				var ddir = (pb - pa).normalized()
-				var perp2 = Vector2(-ddir.y, ddir.x)
-				var steps = int(total / seg_len)
-				for si in maxi(steps, 1):
-					var t0 = float(si) / float(maxi(steps, 1))
-					var t1 = float(si + 1) / float(maxi(steps, 1))
-					var p0 = pa.lerp(pb, t0) + perp2 * (seg_len * (0.5 if si % 2 == 0 else -0.5))
-					var p1 = pa.lerp(pb, t1) + perp2 * (seg_len * (0.5 if (si + 1) % 2 == 0 else -0.5))
-					draw_line(p0, p1, disrupt_color, 2.5 * cam_zoom)
-			var r2 = 10.0 * cam_zoom
-			draw_line(pa + Vector2(-r2, -r2), pa + Vector2(r2, r2), disrupt_color, 2.5 * cam_zoom)
-			draw_line(pa + Vector2(r2, -r2), pa + Vector2(-r2, r2), disrupt_color, 2.5 * cam_zoom)
-	# Snail trail ghost tokens with caterpillar taper — draw on all formation hexes
-	var worm_alpha = 0.75 if is_preview_unit else 0.85
-	for ti in (max_ti + 1):
-		var pos = trail[ti]
-		if pos == Vector2i(-1, -1): continue
-		var form: Array = ftl[ti] if ti < ftl.size() else [pos]
-		if ti != display_turn:
-			for fh in form:
-				var center = hex_to_pixel(fh.x, fh.y)
-				_draw_unit_token(center, u.player, u.models, u.unit_type, true, worm_alpha, ti)
-		if ti < max_ti:
-			var next_pos = trail[ti + 1]
-			if next_pos == Vector2i(-1, -1) or next_pos == pos: continue
-			# Interpolation taper uses anchor-to-anchor
-			var center = hex_to_pixel(pos.x, pos.y)
-			var next_center = hex_to_pixel(next_pos.x, next_pos.y)
-			for interp in [0.17, 0.33, 0.50, 0.67, 0.83]:
-				var mid = center.lerp(next_center, interp)
-				var interp_frame = ti if interp < 0.5 else ti + 1
-				_draw_unit_token_scaled(mid, u.player, u.models, u.unit_type, worm_alpha * 0.85, 0.7, interp_frame)
-	# Current-turn token — draw at all formation hexes
-	var cur_idx = mini(display_turn, trail.size() - 1)
-	if trail[cur_idx] != Vector2i(-1, -1):
-		var cur_form: Array = ftl[cur_idx] if cur_idx < ftl.size() else [trail[cur_idx]]
-		if u.eliminated and u.elim_turn <= display_turn - 1:
-			for fh in cur_form:
-				var center = hex_to_pixel(fh.x, fh.y)
-				var r = 8.0 * cam_zoom
-				draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
-					Color(0.9, 0.2, 0.2, 0.7), 2.5)
-				draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
-					Color(0.9, 0.2, 0.2, 0.7), 2.5)
-		else:
-			for fh in cur_form:
-				var center = hex_to_pixel(fh.x, fh.y)
-				_draw_unit_token(center, u.player, u.models, u.unit_type, false, 1.0)
-
-func _draw_sim(sim: Dictionary, is_preview: bool):
-	var timelines   : Array = sim.get("timelines", [])
-	var formations_tl : Array = sim.get("formations_timeline", [])
-	var final_units : Array = sim.get("units", [])
-	var combat_ev   : Array = sim.get("combat", [])
-
-	var display_turn = mini(anim_turn, TURNS)
-	var effective_mode = view_mode if phase == Phase.DEPLOY else ViewMode.FULL
-	# Animation scan only in CLEAN mode; other modes show static snail trails
-	var show_anim_scan = (effective_mode == ViewMode.CLEAN)
-
-	# During preview, determine which units are affected by the placement
-	var changed: Dictionary = preview_diff.get("changed_uids", {}) if is_preview else {}
-
-	# Fall back to CLEAN when CHANGED has no active preview
-	if effective_mode == ViewMode.CHANGED and not is_preview:
-		effective_mode = ViewMode.CLEAN
-
-	# Which units get snail trails depends on view mode
-	var show_timeline_for_uid := func(uid: int) -> bool:
-		if effective_mode == ViewMode.FULL:
-			return true  # all units
-		if effective_mode == ViewMode.CHANGED:
-			# Only preview unit gets team-colored trail; changed units use red/green diff only
-			return is_preview and uid == timelines.size() - 1
-		# CLEAN mode: only preview unit gets trail, others at final position
-		if not is_preview: return false
-		return uid == timelines.size() - 1
-
-	# --- Hover trail highlight: bright glow on hovered unit's entire trail ---
-	if hover_trail_uid >= 0 and hover_trail_uid < formations_tl.size():
-		var hu = final_units[hover_trail_uid]
-		var h_ftl: Array = formations_tl[hover_trail_uid]
-		var h_trail: Array = timelines[hover_trail_uid]
-		var h_alive = hu.elim_turn if hu.eliminated else TURNS
-		var h_max = mini(h_alive + 1, h_ftl.size() - 1)
-		var h_color = C_P1 if hu.player == 1 else C_P2
-		var glow = Color(h_color.r, h_color.g, h_color.b, 0.85)
-		var outline_col = Color(1, 1, 1, 0.9)
-		# Glow on all formation hexes — double pass for stronger effect
-		for ti in (h_max + 1):
-			var form: Array = h_ftl[ti] if ti < h_ftl.size() else []
-			for fh in form:
-				if fh == Vector2i(-1, -1): continue
-				var hc = hex_to_pixel(fh.x, fh.y)
-				var corners = hex_corners(hc)
-				draw_colored_polygon(corners, glow)
-				draw_polyline(corners + PackedVector2Array([corners[0]]), outline_col, 4.0)
-		# Bright ribbon along trail
-		var h_ribbon_w = HEX_SIZE * 1.1 * cam_zoom
-		for ti in h_max:
-			var from_pos = h_trail[ti]
-			var to_pos = h_trail[ti + 1]
-			if from_pos == to_pos: continue
-			if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
-			var pa = hex_to_pixel(from_pos.x, from_pos.y)
-			var pb = hex_to_pixel(to_pos.x, to_pos.y)
-			var dir = (pb - pa).normalized()
-			var perp = Vector2(-dir.y, dir.x) * h_ribbon_w
-			var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
-			draw_colored_polygon(quad, Color(h_color.r, h_color.g, h_color.b, 0.7))
-
-	# --- 0) Changed trail crossfade (CHANGED mode preview only) ---
-	# Hold each phase 1.5s, quick 0.5s smoothstep crossfade between them (4s total cycle)
-	if is_preview and effective_mode == ViewMode.CHANGED and not changed.is_empty() and not confirmed_sim.is_empty():
-		var cycle = fmod(_diff_flash_time, 4.0)
-		var old_blend: float
-		if cycle < 1.5:
-			old_blend = 1.0
-		elif cycle < 2.0:
-			var t = (cycle - 1.5) / 0.5
-			old_blend = 1.0 - t * t * (3.0 - 2.0 * t)
-		elif cycle < 3.5:
-			old_blend = 0.0
-		else:
-			var t = (cycle - 3.5) / 0.5
-			old_blend = t * t * (3.0 - 2.0 * t)
-		var new_blend = 1.0 - old_blend
-		var old_timelines: Array = confirmed_sim.get("timelines", [])
-		var old_units: Array = confirmed_sim.get("units", [])
-		var old_col = Color(0.75, 0.55, 0.95)  # pale purple
-		var new_col = Color(1.0, 0.95, 0.45)   # pale yellow
-		for uid in changed:
-			# Skip the preview unit itself (it has no "old" path)
-			if uid >= old_timelines.size(): continue
-			# OLD path (pale purple) — what would have happened without this unit
-			if old_blend > 0.02:
-				var ou = old_units[uid]
-				var old_trail: Array = old_timelines[uid]
-				var alive_until = ou.elim_turn if ou.eliminated else TURNS
-				var max_ti = mini(alive_until + 1, old_trail.size() - 1)
-				for ti in max_ti:
-					var from_pos = old_trail[ti]
-					var to_pos = old_trail[ti + 1]
-					if from_pos == to_pos: continue
-					if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
-					var pa = hex_to_pixel(from_pos.x, from_pos.y)
-					var pb = hex_to_pixel(to_pos.x, to_pos.y)
-					var dir = (pb - pa).normalized()
-					var perp = Vector2(-dir.y, dir.x) * HEX_SIZE * 0.9 * cam_zoom
-					var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
-					draw_colored_polygon(quad, Color(old_col.r, old_col.g, old_col.b, 0.80 * old_blend))
-				var old_ftl: Array = confirmed_sim.get("formations_timeline", [])
-				if uid < old_ftl.size():
-					for ti in (max_ti + 1):
-						var form: Array = old_ftl[uid][ti] if ti < old_ftl[uid].size() else []
-						for fh in form:
-							if fh == Vector2i(-1, -1): continue
-							var hc = hex_to_pixel(fh.x, fh.y)
-							var corners = hex_corners(hc)
-							draw_colored_polygon(corners, Color(old_col.r, old_col.g, old_col.b, 0.55 * old_blend))
-							draw_polyline(corners + PackedVector2Array([corners[0]]), Color(old_col.r, old_col.g, old_col.b, 0.80 * old_blend), 2.0)
-			# NEW path (pale yellow) — what will happen with this unit
-			if new_blend > 0.02 and uid < timelines.size():
-				var new_trail: Array = timelines[uid]
-				var nu = final_units[uid]
-				var new_alive = nu.elim_turn if nu.eliminated else TURNS
-				var new_max = mini(new_alive + 1, new_trail.size() - 1)
-				for ti in new_max:
-					var from_pos = new_trail[ti]
-					var to_pos = new_trail[ti + 1]
-					if from_pos == to_pos: continue
-					if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
-					var pa = hex_to_pixel(from_pos.x, from_pos.y)
-					var pb = hex_to_pixel(to_pos.x, to_pos.y)
-					var dir = (pb - pa).normalized()
-					var perp = Vector2(-dir.y, dir.x) * HEX_SIZE * 0.9 * cam_zoom
-					var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
-					draw_colored_polygon(quad, Color(new_col.r, new_col.g, new_col.b, 0.80 * new_blend))
-				if uid < formations_tl.size():
-					for ti in (new_max + 1):
-						var form: Array = formations_tl[uid][ti] if ti < formations_tl[uid].size() else []
-						for fh in form:
-							if fh == Vector2i(-1, -1): continue
-							var hc = hex_to_pixel(fh.x, fh.y)
-							var corners = hex_corners(hc)
-							draw_colored_polygon(corners, Color(new_col.r, new_col.g, new_col.b, 0.55 * new_blend))
-							draw_polyline(corners + PackedVector2Array([corners[0]]), Color(new_col.r, new_col.g, new_col.b, 0.80 * new_blend), 2.0)
-		# Phase label tooltip — "WITHOUT" / "WITH UNIT" follows cursor
-		var cw_font = ThemeDB.fallback_font
-		var cw_fs = 15
-		var cw_pad = 8
-		var cw_text = ""
-		var cw_col = Color.WHITE
-		var cw_a = 0.0
-		if old_blend >= new_blend:
-			cw_a = clampf(old_blend * 1.5, 0.0, 1.0)
-			cw_text = "WITHOUT"
-			cw_col = old_col
-		else:
-			cw_a = clampf(new_blend * 1.5, 0.0, 1.0)
-			cw_text = "WITH UNIT"
-			cw_col = new_col
-		if cw_a > 0.05:
-			var cw_tw = cw_font.get_string_size(cw_text, HORIZONTAL_ALIGNMENT_LEFT, -1, cw_fs).x + cw_pad * 2
-			var cw_th = 20 + cw_pad * 2
-			var cw_vp = get_viewport_rect().size
-			var cw_x = _mouse_pos.x + 20
-			var cw_y = _mouse_pos.y - cw_th - 45
-			if cw_x + cw_tw > cw_vp.x - 10:
-				cw_x = _mouse_pos.x - cw_tw - 10
-			if cw_y < 10:
-				cw_y = _mouse_pos.y + 60
-			draw_rect(Rect2(cw_x, cw_y, cw_tw, cw_th), Color(0.05, 0.05, 0.1, 0.85 * cw_a))
-			draw_rect(Rect2(cw_x, cw_y, cw_tw, cw_th), Color(cw_col.r, cw_col.g, cw_col.b, 0.6 * cw_a), false, 2.0)
-			draw_string(cw_font, Vector2(cw_x + cw_pad, cw_y + cw_pad + 13), cw_text,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, cw_fs, Color(cw_col.r, cw_col.g, cw_col.b, cw_a))
-
-	# --- 0b) Draw units without timelines at their final position ---
-	var fog_mode = (effective_mode == ViewMode.CHANGED and is_preview)
-	for uid in timelines.size():
-		if show_timeline_for_uid.call(uid): continue
-		_draw_unit_final(uid, final_units, timelines, formations_tl, fog_mode, 0.20 if fog_mode else 1.0)
-
-	# --- 1) Highlight path hexes for each unit (all formation hexes) ---
-	for uid in timelines.size():
-		if not show_timeline_for_uid.call(uid): continue
-		var u    = final_units[uid]
-		var trail: Array = timelines[uid]
-		var ftl: Array = formations_tl[uid] if uid < formations_tl.size() else []
-		var alive_until = u.elim_turn if u.eliminated else TURNS
-		var max_ti = mini(alive_until + 1, trail.size() - 1)
-		var is_preview_unit = (is_preview and uid == timelines.size() - 1)
-		var base = C_P1 if u.player == 1 else C_P2
-		var highlight_a = 0.25 if is_preview_unit else 0.30
-		if effective_mode == ViewMode.CHANGED: highlight_a = 0.50
-
-		for ti in (max_ti + 1):
-			var pos = trail[ti]
-			if pos == Vector2i(-1, -1): continue
-			var form: Array = ftl[ti] if ti < ftl.size() else [pos]
-			for fh in form:
-				var hc = hex_to_pixel(fh.x, fh.y)
-				var corners = hex_corners(hc)
-				draw_colored_polygon(corners, Color(base.r, base.g, base.b, highlight_a))
-
-	# --- 2) Draw path connections ---
-	for uid in timelines.size():
-		if not show_timeline_for_uid.call(uid): continue
-		var u    = final_units[uid]
-		var trail: Array = timelines[uid]
-		var alive_until = u.elim_turn if u.eliminated else TURNS
-		var max_ti = mini(alive_until + 1, trail.size() - 1)
-		var is_preview_unit = (is_preview and uid == timelines.size() - 1)
-		var base = C_P1 if u.player == 1 else C_P2
-
-		# Snail trail: filled ribbon between consecutive positions
-		var ribbon_w = HEX_SIZE * (0.6 if is_preview_unit else 0.7) * cam_zoom
-		var ribbon_a = 0.50 if is_preview_unit else 0.6
-		if effective_mode == ViewMode.CHANGED:
-			ribbon_a = 0.85
-			ribbon_w = HEX_SIZE * 0.85 * cam_zoom
-		# Check if this unit was disrupted (for visual break in ribbon)
-		var is_disrupted = u.disrupted and u.disrupted_turn >= 0
-		var disrupt_ti = (u.disrupted_turn + 1) if is_disrupted else -1  # timeline index of disruption
-		for ti in max_ti:
-			var from_pos = trail[ti]
-			var to_pos   = trail[ti + 1]
-			if from_pos == to_pos: continue
-			if from_pos == Vector2i(-1, -1) or to_pos == Vector2i(-1, -1): continue
-			# Skip ribbon at disruption point — draw break instead
-			if is_disrupted and ti == disrupt_ti:
-				continue
-			var pa = hex_to_pixel(from_pos.x, from_pos.y)
-			var pb = hex_to_pixel(to_pos.x, to_pos.y)
-			var dir = (pb - pa).normalized()
-			var perp = Vector2(-dir.y, dir.x) * ribbon_w
-			var quad = PackedVector2Array([
-				pa + perp, pa - perp, pb - perp, pb + perp
-			])
-			draw_colored_polygon(quad, Color(base.r, base.g, base.b, ribbon_a))
-
-		# Draw disruption break: dashed line from old position to yanked position
-		if is_disrupted and u.disrupted_from != Vector2i(-1, -1) and disrupt_ti < trail.size():
-			var yank_pos = trail[disrupt_ti] if disrupt_ti < trail.size() else Vector2i(u.col, u.row)
-			if yank_pos != Vector2i(-1, -1):
-				var pa = hex_to_pixel(u.disrupted_from.x, u.disrupted_from.y)
-				var pb = hex_to_pixel(yank_pos.x, yank_pos.y)
-				# Draw jagged disruption line (purple/magenta for temporal effect)
-				var disrupt_color = Color(0.8, 0.2, 1.0, 0.9)
-				var seg_len = 6.0 * cam_zoom
-				var total = pa.distance_to(pb)
-				if total > 0:
-					var dir = (pb - pa).normalized()
-					var perp = Vector2(-dir.y, dir.x)
-					var steps = int(total / seg_len)
-					for si in maxi(steps, 1):
-						var t0 = float(si) / float(maxi(steps, 1))
-						var t1 = float(si + 1) / float(maxi(steps, 1))
-						var p0 = pa.lerp(pb, t0) + perp * (seg_len * (0.5 if si % 2 == 0 else -0.5))
-						var p1 = pa.lerp(pb, t1) + perp * (seg_len * (0.5 if (si + 1) % 2 == 0 else -0.5))
-						draw_line(p0, p1, disrupt_color, 2.5 * cam_zoom)
-				# Draw X marks at the disrupted-from position (old fate severed)
-				var r = 10.0 * cam_zoom
-				draw_line(pa + Vector2(-r, -r), pa + Vector2(r, r), disrupt_color, 2.5 * cam_zoom)
-				draw_line(pa + Vector2(r, -r), pa + Vector2(-r, r), disrupt_color, 2.5 * cam_zoom)
-
-	# --- 3) Ghost tokens at each turn position (all formation hexes) ---
-	for uid in timelines.size():
-		if not show_timeline_for_uid.call(uid): continue
-		var u    = final_units[uid]
-		var trail: Array = timelines[uid]
-		var ftl: Array = formations_tl[uid] if uid < formations_tl.size() else []
-		var alive_until = u.elim_turn if u.eliminated else TURNS
-		var max_ti = mini(alive_until + 1, trail.size() - 1)
-		var is_preview_unit = (is_preview and uid == timelines.size() - 1)
-
-		# Snail trail: each turn gets a distinct sprite pose, dense interpolation between
-		var worm_alpha = 0.75 if is_preview_unit else 0.85
-		if effective_mode == ViewMode.CHANGED: worm_alpha = 0.95
-		for ti in (max_ti + 1):
-			var pos = trail[ti]
-			if pos == Vector2i(-1, -1): continue
-			if show_anim_scan and ti == display_turn: continue  # current-turn token drawn in section 5
-			# Full-size sprite at each formation hex
-			var form: Array = ftl[ti] if ti < ftl.size() else [pos]
-			for fh in form:
-				var center = hex_to_pixel(fh.x, fh.y)
-				_draw_unit_token(center, u.player, u.models, u.unit_type, true, worm_alpha, ti)
-			# Caterpillar taper: smaller sprites between anchor stops
-			if ti < max_ti:
-				var next_pos = trail[ti + 1]
-				if next_pos == Vector2i(-1, -1) or next_pos == pos: continue
-				var anchor_center = hex_to_pixel(pos.x, pos.y)
-				var next_center = hex_to_pixel(next_pos.x, next_pos.y)
-				for interp in [0.17, 0.33, 0.50, 0.67, 0.83]:
-					var mid = anchor_center.lerp(next_center, interp)
-					var interp_frame = ti if interp < 0.5 else ti + 1
-					_draw_unit_token_scaled(mid, u.player, u.models, u.unit_type, worm_alpha * 0.85, 0.7, interp_frame)
-
-	if show_anim_scan:
-		# --- 4) Combat sparks (only in CLEAN mode with animation) ---
-		for t in display_turn:
-			if t >= combat_ev.size(): break
-			for ev in combat_ev[t]:
-				var aid = ev.get("a", -1)
-				var eid = ev.get("b", -1)
-				var show_spark = false
-				if aid >= 0 and show_timeline_for_uid.call(aid): show_spark = true
-				if eid >= 0 and show_timeline_for_uid.call(eid): show_spark = true
-				if not show_spark: continue
-				var ac = hex_to_pixel(ev.ac, ev.ar)
-				var bc = hex_to_pixel(ev.bc, ev.br)
-				var mid = (ac + bc) * 0.5
-				draw_circle(mid, 14.0 * cam_zoom, Color(C_COMBAT.r, C_COMBAT.g, C_COMBAT.b, 0.20))
-				_draw_swords(mid)
-
-		# --- 5) Current-turn tokens on top (at formation hexes) ---
-		for uid in timelines.size():
-			if not show_timeline_for_uid.call(uid): continue
-			var trail: Array = timelines[uid]
-			var ftl: Array = formations_tl[uid] if uid < formations_tl.size() else []
-			var u     = final_units[uid]
-			var cur_idx  = mini(display_turn, trail.size() - 1)
-
-			if trail[cur_idx] == Vector2i(-1, -1): continue
-
-			var cur_form: Array = ftl[cur_idx] if cur_idx < ftl.size() else [trail[cur_idx]]
-
-			if u.eliminated and u.elim_turn <= display_turn - 1:
-				for fh in cur_form:
-					var center = hex_to_pixel(fh.x, fh.y)
-					var r = 8.0 * cam_zoom
-					draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
-						Color(0.9, 0.2, 0.2, 0.7), 2.5)
-					draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
-						Color(0.9, 0.2, 0.2, 0.7), 2.5)
-				continue
-			for fh in cur_form:
-				var center = hex_to_pixel(fh.x, fh.y)
-				_draw_unit_token(center, u.player, u.models, u.unit_type, false, 1.0)
-
-	# --- 6) Fate icons during preview (sword/death/survival) ---
-	if is_preview and not preview_diff.is_empty():
-		var fate_changes: Array = preview_diff.get("fate_changes", [])
-		var icon_size = HEX_SIZE * 2.5 * cam_zoom
-		for fc in fate_changes:
-			var uid_fc: int = fc.uid
-			if uid_fc >= timelines.size(): continue
-			var u_fc = final_units[uid_fc]
-			var trail_fc: Array = timelines[uid_fc]
-			# Get unit's final alive position
-			var final_pos = Vector2i(-1, -1)
-			if u_fc.eliminated:
-				var et = mini(u_fc.elim_turn, trail_fc.size() - 1)
-				final_pos = trail_fc[et]
-			else:
-				final_pos = trail_fc[trail_fc.size() - 1]
-			if final_pos == Vector2i(-1, -1): continue
-			var center = hex_to_pixel(final_pos.x, final_pos.y)
-			var team_tint = C_P1 if u_fc.player == 1 else C_P2
-			if fc.fate == "now_dies" and _icon_death:
-				var death_offset = Vector2(icon_size * 0.5, -icon_size * 0.3)
-				var death_rect = Rect2(center + death_offset - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
-				draw_texture_rect(_icon_death, death_rect, false, team_tint)
-			elif fc.fate == "now_survives" and _icon_survive:
-				var surv_offset = Vector2(0, -icon_size * 1.0)
-				var surv_rect = Rect2(center + surv_offset - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
-				draw_texture_rect(_icon_survive, surv_rect, false, team_tint)
-		# Sword icons for combat victories: unit alive with no enemies in combat range
-		for uid_s in timelines.size():
-			var u_s = final_units[uid_s]
-			if u_s.eliminated: continue
-			var trail_s: Array = timelines[uid_s]
-			var final_pos_s = trail_s[trail_s.size() - 1]
-			if final_pos_s == Vector2i(-1, -1): continue
-			# Check if any enemy was eliminated nearby (within combat range)
-			var has_kill = false
-			for uid_e in timelines.size():
-				var ue = final_units[uid_e]
-				if ue.player == u_s.player: continue
-				if not ue.eliminated: continue
-				var elim_pos = timelines[uid_e][mini(ue.elim_turn, timelines[uid_e].size() - 1)]
-				if elim_pos == Vector2i(-1, -1): continue
-				var dist = hex_dist(final_pos_s.x, final_pos_s.y, elim_pos.x, elim_pos.y)
-				if dist <= COMBAT_RANGE + 2:
-					has_kill = true
-					break
-			if has_kill and _icon_sword:
-				var center_s = hex_to_pixel(final_pos_s.x, final_pos_s.y)
-				var sword_offset = Vector2(-icon_size * 0.6, -icon_size * 0.8)
-				var sword_rect = Rect2(center_s + sword_offset, Vector2(icon_size, icon_size))
-				var team_color = C_P1 if u_s.player == 1 else C_P2
-				draw_texture_rect(_icon_sword, sword_rect, false, team_color)
-
-# ============================================================================
-# DRAW HELPERS
-# ============================================================================
-
-func _draw_unit_token(center: Vector2, player: int, models: int, unit_type: String, is_ghost: bool, alpha: float, fixed_frame: int = -1):
-	var a = alpha * (0.60 if is_ghost else 1.0)
-	# Try to draw sprite; fall back to colored circle if no texture
-	var has_sprite = unit_sprites.has(player) and unit_sprites[player].has(unit_type)
-	if has_sprite:
-		var tex: Texture2D = unit_sprites[player][unit_type]["idle"]
-		var info = SPRITE_FRAMES.get(unit_type, {"idle": 1, "size": 192})
-		var frame_size = info["size"]
-		var frame_count = info["idle"]
-		var frame_idx: int
-		if fixed_frame >= 0:
-			# Spacetime worm: each time-slice shows a distinct pose
-			frame_idx = fixed_frame % frame_count
-		else:
-			# Normal: cycle through idle frames using anim_frac + anim_turn
-			var anim_speed = 8.0  # frames per second
-			frame_idx = int(fmod(anim_turn * anim_speed * TURN_DURATION + anim_frac * anim_speed * TURN_DURATION, frame_count))
-		frame_idx = clampi(frame_idx, 0, frame_count - 1)
-		var src_rect = Rect2(frame_idx * frame_size, 0, frame_size, frame_size)
-		# Draw size: scale up for larger frames so visible character matches
-		var draw_size = HEX_SIZE * 4.3 * cam_zoom * (frame_size / 192.0)
-		var dest_rect = Rect2(center - Vector2(draw_size * 0.5, draw_size * 0.6), Vector2(draw_size, draw_size))
-		draw_texture_rect_region(tex, dest_rect, src_rect, Color(1, 1, 1, a))
-	else:
-		# Fallback: simple colored circle
-		var base = C_P1 if player == 1 else C_P2
-		var s = HEX_SIZE * 0.55 * cam_zoom
-		var col = Color(base.r, base.g, base.b, a)
-		var segments = 16
-		var circle_pts = PackedVector2Array()
-		for i in segments:
-			var ang = i * TAU / segments
-			circle_pts.append(center + Vector2(cos(ang), sin(ang)) * s)
-		draw_colored_polygon(circle_pts, col)
-
-	if not is_ghost and cam_zoom >= 0.5:
-		var font = ThemeDB.fallback_font
-		draw_string(font, center + Vector2(-5, 5), str(models),
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 1, 1, a))
-
-func _draw_unit_token_scaled(center: Vector2, player: int, models: int, unit_type: String, alpha: float, scale_factor: float, fixed_frame: int = -1):
-	# Smaller version of _draw_unit_token for caterpillar taper segments
-	var a = alpha * 0.60  # always ghost-like
-	var has_sprite = unit_sprites.has(player) and unit_sprites[player].has(unit_type)
-	if has_sprite:
-		var tex: Texture2D = unit_sprites[player][unit_type]["idle"]
-		var info = SPRITE_FRAMES.get(unit_type, {"idle": 1, "size": 192})
-		var frame_size = info["size"]
-		var frame_count = info["idle"]
-		var frame_idx = (fixed_frame % frame_count) if fixed_frame >= 0 else 0
-		frame_idx = clampi(frame_idx, 0, frame_count - 1)
-		var src_rect = Rect2(frame_idx * frame_size, 0, frame_size, frame_size)
-		var draw_size = HEX_SIZE * 4.3 * cam_zoom * scale_factor * (frame_size / 192.0)
-		var dest_rect = Rect2(center - Vector2(draw_size * 0.5, draw_size * 0.6), Vector2(draw_size, draw_size))
-		draw_texture_rect_region(tex, dest_rect, src_rect, Color(1, 1, 1, a))
-	else:
-		var base = C_P1 if player == 1 else C_P2
-		var s = HEX_SIZE * 0.55 * cam_zoom * scale_factor
-		var col = Color(base.r, base.g, base.b, a)
-		var segments = 16
-		var circle_pts = PackedVector2Array()
-		for i in segments:
-			var ang = i * TAU / segments
-			circle_pts.append(center + Vector2(cos(ang), sin(ang)) * s)
-		draw_colored_polygon(circle_pts, col)
 
 func _draw_shift_summary():
 	var vp_size = get_viewport_rect().size
@@ -2252,29 +1577,6 @@ func _draw_shift_summary():
 			elif fc.fate == "now_survives" and _icon_survive:
 				var r = Rect2(center - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
 				draw_texture_rect(_icon_survive, r, false, team_tint)
-
-func _draw_banner(center: Vector2, idx: int):
-	var sc = cam_zoom
-	var pole_top = center + Vector2(0, -HEX_SIZE * sc * 1.1)
-	var pole_bot = center + Vector2(0,  HEX_SIZE * sc * 0.3)
-	draw_line(pole_bot, pole_top, Color(0.55, 0.45, 0.30), 1.5 * sc)
-	var fw = HEX_SIZE * sc * 0.5
-	var fh = HEX_SIZE * sc * 0.5
-	var ft = pole_top + Vector2(0, fh * 0.05)
-	var flag_cols = [Color(0.85, 0.72, 0.18), Color(0.72, 0.28, 0.14), Color(0.18, 0.55, 0.28)]
-	draw_colored_polygon(PackedVector2Array([
-		ft, ft + Vector2(fw, fh * 0.5), ft + Vector2(0, fh),
-	]), flag_cols[idx % 3])
-
-func _draw_swords(center: Vector2):
-	var r = 9.0 * cam_zoom
-	for sign in [-1.0, 1.0]:
-		var angle = sign * PI / 4.0
-		var dir   = Vector2(cos(angle), sin(angle))
-		var perp  = Vector2(-dir.y, dir.x)
-		draw_line(center - dir * r, center + dir * r, C_SWORD, 2.0)
-		draw_line(center + dir * r * 0.3 - perp * r * 0.4,
-			center + dir * r * 0.3 + perp * r * 0.4, C_SWORD.darkened(0.2), 1.5)
 
 func _draw_hud():
 	var font = ThemeDB.fallback_font
@@ -2743,133 +2045,6 @@ func _draw_combat_log():
 		var bar_h = panel_h * float(visible_lines) / float(log_lines.size())
 		var bar_y = panel_y + scroll_frac * (panel_h - bar_h)
 		draw_rect(Rect2(panel_x + panel_w - 4, bar_y, 3, bar_h), Color(0.5, 0.5, 0.5, 0.5))
-
-# ============================================================================
-# REPLAY MODE
-# ============================================================================
-
-func _draw_final_state(sim: Dictionary):
-	if sim.is_empty():
-		return
-	var timelines: Array = sim.get("timelines", [])
-	var formations_tl: Array = sim.get("formations_timeline", [])
-	var final_units: Array = sim.get("units", [])
-
-	# Set objective control to final state
-	_obj_control = sim.get("obj_control", [0, 0, 0])
-
-	# Draw hex grid with final objective control
-	for r in ROWS:
-		for c in COLS:
-			_draw_tile(c, r)
-
-	# Draw all units at their final positions (using formation data)
-	for uid in timelines.size():
-		_draw_unit_final(uid, final_units, timelines, formations_tl, false, 1.0)
-
-	# Draw preview unit's full timeline on top so player sees their unit's path
-	var is_preview = (not preview_sim.is_empty()) and sim == preview_sim
-	if is_preview and timelines.size() > 0:
-		var puid = timelines.size() - 1
-		var combat_ev: Array = sim.get("combat", [])
-		var display_turn = mini(anim_turn, TURNS)
-		_draw_single_timeline(puid, final_units, timelines, formations_tl, combat_ev, display_turn, true)
-
-func _draw_replay():
-	var sim = confirmed_sim
-	if sim.is_empty():
-		return
-
-	var timelines: Array = sim.get("timelines", [])
-	var final_units: Array = sim.get("units", [])
-	var snapshots: Array = sim.get("unit_snapshots", [])
-	var obj_hist: Array = sim.get("obj_ctrl_history", [])
-	var vpt: Array = sim.get("vp_per_turn", [])
-	var unit_names: Array = sim.get("unit_names", [])
-
-	if snapshots.is_empty():
-		return
-
-	# Set obj_control for tile drawing
-	if replay_turn < obj_hist.size():
-		_obj_control = obj_hist[replay_turn]
-	else:
-		_obj_control = sim.get("obj_control", [0, 0, 0])
-
-	# Draw hex grid
-	for r in ROWS:
-		for c in COLS:
-			_draw_tile(c, r)
-
-
-	# Draw only the units at their replay_turn position — no ghosts, no trails
-	var snap: Array = snapshots[replay_turn] if replay_turn < snapshots.size() else []
-	for uid in timelines.size():
-		var u_snap = snap[uid] if uid < snap.size() else {}
-		var is_elim = u_snap.get("eliminated", false)
-		var models = u_snap.get("models", 0)
-		var u = final_units[uid]
-		# Use snapshot formation if available, else fall back to timeline position
-		var snap_form: Array = u_snap.get("formation", [])
-		if snap_form.is_empty():
-			var trail: Array = timelines[uid]
-			var ti = mini(replay_turn + 1, trail.size() - 1)
-			var pos = trail[ti]
-			if pos == Vector2i(-1, -1): continue
-			snap_form = [pos]
-
-		if is_elim:
-			for fh in snap_form:
-				var center = hex_to_pixel(fh.x, fh.y)
-				var r = 8.0 * cam_zoom
-				draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
-					Color(0.9, 0.2, 0.2, 0.7), 2.5)
-				draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
-					Color(0.9, 0.2, 0.2, 0.7), 2.5)
-			continue
-
-		for fh in snap_form:
-			var center = hex_to_pixel(fh.x, fh.y)
-			_draw_unit_token(center, u.player, models, u.unit_type, false, 1.0)
-
-	# Draw combat events for this turn
-	var combat_ev: Array = sim.get("combat", [])
-	if replay_turn < combat_ev.size():
-		for ev in combat_ev[replay_turn]:
-			var ac = hex_to_pixel(ev.ac, ev.ar)
-			var bc = hex_to_pixel(ev.bc, ev.br)
-			var mid = (ac + bc) * 0.5
-			draw_circle(mid, 14.0 * cam_zoom, Color(C_COMBAT.r, C_COMBAT.g, C_COMBAT.b, 0.35))
-			_draw_swords(mid)
-
-	# --- Replay HUD ---
-	var font = ThemeDB.fallback_font
-	var vp = get_viewport_rect().size
-
-	# Top bar
-	draw_rect(Rect2(0, 0, vp.x, 44), Color(0, 0, 0, 0.85))
-	var score_txt = ""
-	if replay_turn < vpt.size():
-		score_txt = "   |   VP: BLUE %d - RED %d" % [vpt[replay_turn][0], vpt[replay_turn][1]]
-	var hud_txt = "REPLAY  —  Turn %d/%d   (Left/Right to navigate, Esc to exit)%s" % [replay_turn + 1, TURNS, score_txt]
-	draw_string(font, Vector2(14, 28), hud_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.95, 0.85, 0.3))
-
-	# Turn indicator bar
-	draw_rect(Rect2(0, 44, vp.x, 4), Color(0.15, 0.14, 0.12))
-	var progress = float(replay_turn + 1) / float(TURNS)
-	draw_rect(Rect2(0, 38, vp.x * progress, 4), C_COMBAT)
-
-	# Turn pips at bottom
-	var pip_y = vp.y - 30
-	var pip_w = 20.0
-	var total_pip_w = pip_w * TURNS
-	var pip_start = (vp.x - total_pip_w) / 2.0
-	for t in TURNS:
-		var px = pip_start + t * pip_w
-		var is_active = (t == replay_turn)
-		var pip_col = C_COMBAT if is_active else Color(0.3, 0.3, 0.3, 0.6)
-		draw_rect(Rect2(px + 2, pip_y, pip_w - 4, 12), pip_col)
-		draw_string(font, Vector2(px + 4, pip_y + 10), str(t + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1, 1, 1, 0.8) if is_active else Color(0.6, 0.6, 0.6))
 
 # ============================================================================
 # BATTLE SUMMARY

@@ -4,25 +4,36 @@
 ```
 ball-cannon/          HTML5 canvas ball cannon prototype
 tactics/              HTML5 canvas tactics prototype  (prototype.html)
-tactics-godot/        Godot 4.6 hex tactics demo      (main active project)
-  HexMoveDemo.gd       Main orchestrator (2,965 lines — state, input, rendering, HUD)
+tactics-godot/        Godot 4.6 hex tactics DEVELOPER TESTING TOOL  (main active project)
+  HexMoveDemo.gd       Main orchestrator (2,171 lines — state, input, rendering, HUD)
   scripts/
+    battle_renderer.gd  Battle rendering — tiles, trails, tokens (862 lines)
     hex_math.gd         Static pure hex math (94 lines)
     combat_simulator.gd Simulation, AI, pathfinding, combat (948 lines)
     resources/          Resource class definitions (UnitStats, GridConfig, etc.)
   resources/            .tres config files (units, grid, battle, terrain)
   HeadlessSim.gd/tscn   Headless CLI sim tool (uses CombatSimulator directly)
   deploy.json           Deployment config for headless sim
-  REFACTOR-NOTES.md     Refactor plan and progress (Phases 0-4 done, 5-6 TODO)
+  REFACTOR-NOTES.md     Migration plan and progress (Phases 0-5 done, 7-12 planned)
 GAME-DESIGN-DOCUMENT.md
 ```
 
 ## Active focus
-`tactics-godot/` — Godot 4.6 hex tactics demo, multi-file architecture (refactor in progress).
-See `tactics-godot/CLAUDE.md` for Godot-specific rules, `tactics-godot/REFACTOR-NOTES.md` for refactor status.
+`tactics-godot/` — **Developer testing toolkit** for hex tactics game balance and game feel. Godot 4.6, multi-file architecture (migration to Godot-native patterns in progress).
+
+**This is NOT a game — it's a prototyping tool.** The final game design is uncertain. This tool lets 4 teammates independently test variations of grid size, unit stats, combat rules, terrain, and visual presentation. All configuration must be editable from the Godot Inspector without touching code.
+
+See `tactics-godot/CLAUDE.md` for Godot-specific rules, `tactics-godot/REFACTOR-NOTES.md` for migration plan.
 
 ## Core design principle
 **RNG as Terrain, Not Chaos.** Randomness creates unique game states, but the player makes intelligent decisions to alter outcomes. All RNG must be previewable, local, and player-controllable. See `tactics-godot/GAME-DESIGN-DOCUMENT.md` for full philosophy.
+
+## Architecture migration status
+- **Phases 0-5: DONE** — Resources, terrain, hex math, combat simulator, battle renderer extracted
+- **Phase 6 (Node2D HUDRenderer): SKIPPED** — going directly to Control nodes
+- **Phases 7-12: TODO** — GameState extraction, VisualConfig resource, HUD → Control nodes, controller extraction, TileMapLayer rendering, @tool editor preview
+
+Target: Godot-native architecture with CanvasLayer + Control nodes for HUD, TileMapLayer for hex grid, signals for decoupling, @export for all configuration. Dynamic rendering (trails, tokens, combat sparks) stays as draw_*.
 
 ## Game design summary
 - Turn-based tactics, Warhammer-style combat
@@ -32,29 +43,15 @@ See `tactics-godot/CLAUDE.md` for Godot-specific rules, `tactics-godot/REFACTOR-
 - Unit types: Infantry (10 models, 5 hex), Cavalry (6 models, 3 hex), Artillery (1 model, 5 hex fixed), Deep Strike (8 models, 4 hex), Archer (8 models, 4 hex)
 - Move values: Infantry 10, Cavalry 24, Artillery 8, Deep Strike 16, Archer 16
 - Ranges: Artillery 40, Archer 24, Archer retreat 16; COMBAT_RANGE stays at 2
-- Multi-hex formations: units occupy ceil(models/2) hexes in compact clusters; shrinks as models die (front-line hexes released first)
+- Multi-hex formations: units occupy ceil(models/2) hexes in compact clusters; shrinks as models die
 - Objective Control (OC): each model contributes 1 OC; most total OC within OC_RADIUS (4) controls objective
-- Non-reversible unit selection popup before each placement (blind commitment)
-- Combat phases: Movement → Temporal Disruption → Ranged → Melee → Retreat (archer: always retreats; first melee = half dmg both ways)
-- Deep Strike temporal disruption: DS pathfinds to nearest enemy trail hex; at COMBAT_RANGE triggers yank (enemy teleported back, formation recomputed, cavalry lose charge bonus). One charge per DS. Wasted on dead unit trails. Reverts to infantry AI after. Visual: worm fractures (purple jagged line, X mark, ribbon gap)
-- Full combat: hit roll → wound roll → armor save (with rend) → damage; cavalry charge bonus (dmg 2→1 if already in melee)
+- Combat phases: Movement → Temporal Disruption → Ranged → Melee → Retreat
+- Deep Strike temporal disruption: DS pathfinds to nearest enemy trail hex; at COMBAT_RANGE triggers yank
 - VP scoring: 5 VP per objective held per turn (persistent control)
-- Visual language: "all time at once" — ghost trails show full battle history simultaneously
-- Local butterfly effect: per-combat RNG seeded from nearby units — only fights within 2 hexes of a new unit change
-- Preview diff indicators: fate chart highlights, score delta, objective flip glow
-- View modes (keys 1–4): CLEAN, CHANGED (dark fog + crossfading old/new paths), FULL (spacetime worm view), FINAL (static end-state)
-- Visual philosophy: units are spacetime worms (block universe / eternalism) — ghost trails ARE the unit, not history
-- Narrative preview panel: text summary of preview unit's projected fate
-- UI: scoreboard, unit fate chart, combat log, replay mode, battle summary, trail hover tooltip
-- Timeline shifted popup always shows placed unit's performance (damage, kills, objectives, survival)
-- Deploy zones: P1 rows 32-39 cols 4-51, P2 rows 0-7 cols 4-51
-- Objectives at (14,20), (28,18), (42,20)
-- Named constants: OC_RADIUS=4, CAVALRY_AGGRO=16, COMBAT_RANGE=2
-- DS exclusion zone: CAVALRY_AGGRO + 1 = 17 hexes from enemies
-- Camera initial zoom: 0.5 (HEX_SIZE stays at 20.0)
-- Trail hover tooltip: hover any unit's trail to see stats (name, survival, damage, kills, objectives, disruption); bright team-colored glow highlights entire trail
-- Deploy heatmap: VP delta overlay per hex, toggled by H key (off by default)
-- Headless simulation CLI: `HeadlessSim.tscn` runs sim without GUI, reads `deploy.json`, outputs `results.json`
+- Visual philosophy: spacetime worms — ghost trails ARE the unit (block universe / eternalism)
+- View modes (keys 1–4): CLEAN, CHANGED, FULL, FINAL
+- Local butterfly effect: per-combat RNG seeded from nearby units within 2 hexes
+- Headless simulation CLI: `HeadlessSim.tscn` runs sim without GUI
 
 ## Workflow rules
 - ALWAYS analyze before implementing — for any gameplay or design change, analyze implications, present questions, and wait for answers before writing code
@@ -70,8 +67,8 @@ See `tactics-godot/CLAUDE.md` for Godot-specific rules, `tactics-godot/REFACTOR-
   - Do NOT wait to be asked. If you changed behavior, update the docs in the same pass.
 
 ## Known bugs (fixed in recent session)
-- **Shift summary placed unit name** — Fixed. Was showing wrong unit when Blue placed after Red due to index calculation. Now correctly compute UID based on active player.
-- **elim_turn off-by-one** — Fixed across 9 locations. Display strings now correctly show `elim_turn + 1` (user-facing turn numbers 1-10). Internal logic unchanged (0-based).
-- **Deep strike start_turn off-by-one** — Fixed. DS turn popup T3 now correctly sets 0-based turn 2 (displays as Turn 3). HeadlessSim.gd converts deploy.json values (2-8) to 0-based.
-- **Deploy formation zone bleed** — Fixed. Formations now compact within the deploy zone instead of bleeding outside. `_deploy_blocked_cache` stores non-deploy-zone hexes + existing formation hexes as blocked.
-- **Deploy formation stacking** — Fixed. Deploy click and preview sim now check full formation overlap via blocked cache, not just anchor hex comparison.
+- **Shift summary placed unit name** — Fixed. Was showing wrong unit when Blue placed after Red due to index calculation.
+- **elim_turn off-by-one** — Fixed across 9 locations. Display strings now correctly show `elim_turn + 1`.
+- **Deep strike start_turn off-by-one** — Fixed. DS turn popup T3 now correctly sets 0-based turn 2.
+- **Deploy formation zone bleed** — Fixed. Formations now compact within the deploy zone.
+- **Deploy formation stacking** — Fixed. Deploy click and preview sim check full formation overlap via blocked cache.
