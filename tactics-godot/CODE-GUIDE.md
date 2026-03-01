@@ -2,7 +2,7 @@
 
 This is a Godot 4.6 **developer testing toolkit** for a hex tactics game. It's not the final game — it's a tool for the team to rapidly test game feel, balance, and visual presentation. The final game design is uncertain; this tool lets us explore variations without committing.
 
-**Architecture is in active migration** toward Godot-native patterns. See `REFACTOR-NOTES.md` for the full plan (Phases 0-5 done, Phases 7-12 planned).
+**Architecture is in active migration** toward Godot-native patterns. See `REFACTOR-NOTES.md` for the full plan (Phases 0-5 and 8 done, Phases 7 and 9-12 planned).
 
 ---
 
@@ -47,11 +47,11 @@ This is a Godot 4.6 **developer testing toolkit** for a hex tactics game. It's n
 | File | Lines | Role |
 |------|-------|------|
 | `HexMoveDemo.gd` | 2,171 | Orchestrator: state, input, deploy, HUD drawing |
-| `scripts/battle_renderer.gd` | 862 | Child Node2D: tiles, trails, tokens, sim rendering |
+| `scripts/battle_renderer.gd` | 863 | Child Node2D: tiles, trails, tokens, sim rendering |
 | `scripts/combat_simulator.gd` | 948 | Simulation engine, AI, pathfinding, combat rolls |
 | `scripts/hex_math.gd` | 94 | Pure hex math (static class — `HexMath.hex_to_pixel()`, etc.) |
-| `scripts/resources/*.gd` | 4 files | Resource class definitions (UnitStats, GridConfig, BattleConfig, TerrainType) |
-| `resources/**/*.tres` | 10 files | 5 unit configs + 2 game configs + 3 terrain types |
+| `scripts/resources/*.gd` | 5 files | Resource class definitions (UnitStats, GridConfig, BattleConfig, TerrainType, VisualConfig) |
+| `resources/**/*.tres` | 11 files | 5 unit configs + 3 game configs + 3 terrain types |
 | `HeadlessSim.gd` | 304 | CLI simulation runner (uses CombatSimulator directly) |
 
 ---
@@ -107,6 +107,7 @@ Game constants live in `.tres` resource files editable in the Godot Inspector:
 
 - **`resources/config/grid_config.tres`** — COLS, ROWS, HEX_SIZE, deploy zones, objectives, initial zoom
 - **`resources/config/battle_config.tres`** — COMBAT_RANGE, OC_RADIUS, CAVALRY_AGGRO, VP rules, TURNS
+- **`resources/config/visual_config.tres`** — 91 visual params: colors, trail alphas/widths, animation speeds, sprite scales, terrain outlines, combat aura, fate icons, disruption visuals
 - **`resources/units/*.tres`** — per-unit stats (models, hp, move, oc, attacks, armor, etc.)
 - **`resources/terrain/*.tres`** — terrain types (grass, forest, water)
 
@@ -253,7 +254,7 @@ Run simulations without the GUI:
 
 ### Architecture work (in progress):
 - **Phase 7: GameState extraction** — centralize state, add signals
-- **Phase 8: VisualConfig resource** — make colors/animation Inspector-editable
+- **Phase 8: VisualConfig resource** — DONE. 91 @export vars in `visual_config.tres`
 - **Phase 9: HUD → Control nodes** — replace draw_* HUD with Godot UI
 - **Phase 11: TileMapLayer rendering** — GPU-batched tiles
 

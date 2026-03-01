@@ -50,26 +50,25 @@ Use Godot's built-in tools instead of reinventing them:
 
 ---
 
-## Current State (post Phase 5)
+## Current State (post Phase 8)
 
 | File | Lines | Role |
 |------|-------|------|
 | `HexMoveDemo.gd` | 2,171 | Orchestrator: state, input, deploy, HUD drawing |
-| `scripts/battle_renderer.gd` | 862 | Child Node2D: tiles, trails, tokens, sim rendering |
+| `scripts/battle_renderer.gd` | 863 | Child Node2D: tiles, trails, tokens, sim rendering |
 | `scripts/hex_math.gd` | 94 | Pure hex math (static class) |
 | `scripts/combat_simulator.gd` | 948 | Simulation, AI, pathfinding, combat |
-| `scripts/resources/*.gd` | 4 files | UnitStats, GridConfig, BattleConfig, TerrainType |
-| `resources/**/*.tres` | 10 files | 5 units + 2 config + 3 terrain |
+| `scripts/resources/*.gd` | 5 files | UnitStats, GridConfig, BattleConfig, TerrainType, VisualConfig |
+| `resources/**/*.tres` | 11 files | 5 units + 3 config + 3 terrain |
 | `HeadlessSim.gd` | 304 | CLI simulation runner (uses CombatSimulator directly) |
 
-**Solved:** Unit stats editable in Inspector, config values in `.tres` files, simulation engine decoupled, battle rendering extracted.
+**Solved:** Unit stats editable in Inspector, config values in `.tres` files, simulation engine decoupled, battle rendering extracted, all visual params (colors, alphas, widths, animation speeds) in VisualConfig resource.
 
 **Anti-patterns remaining:**
 1. All HUD drawn via draw_* calls — no Control nodes, no theming
 2. All state lives in HexMoveDemo.gd — child nodes reach back via `_parent.xxx`
-3. Colors hardcoded as `const` — not editable in Inspector
-4. Tiles drawn per-frame in code (2,240 draw calls) — TileMapLayer exists but unused visually
-5. No signals — tight coupling between nodes
+3. Tiles drawn per-frame in code (2,240 draw calls) — TileMapLayer exists but unused visually
+4. No signals — tight coupling between nodes
 
 ---
 
@@ -164,30 +163,26 @@ resources/
     └── water.tres              — passable=false
 ```
 
-### New Resource: VisualConfig
+### Resource: VisualConfig (Phase 8 — DONE)
+
+`scripts/resources/visual_config.gd` — 207 lines, 91 `@export` vars in 16 groups. Both HexMoveDemo and BattleRenderer `preload()` independently.
 
 ```gdscript
 class_name VisualConfig extends Resource
 
 @export_group("Team Colors")
-@export var color_p1: Color = Color(0.28, 0.58, 1.00)
-@export var color_p2: Color = Color(1.00, 0.35, 0.28)
+@export var color_p1: Color = Color(0.28, 0.58, 1.00, 1.0)
+@export var color_p2: Color = Color(1.00, 0.35, 0.28, 1.0)
 
-@export_group("World Colors")
-@export var color_background: Color = Color(0.07, 0.10, 0.18)
-@export var color_hex_fill: Color = Color(0.11, 0.16, 0.26)
-@export var color_hex_stroke: Color = Color(0.20, 0.28, 0.42)
-@export var color_combat: Color = Color(1.00, 0.75, 0.10)
-@export var color_banner: Color = Color(0.85, 0.78, 0.32)
-
-@export_group("Trail Visuals")
-@export_range(0.0, 1.0) var trail_ghost_alpha: float = 0.60
-@export_range(0.0, 1.0) var trail_ribbon_alpha: float = 0.6
-@export_range(0.1, 2.0) var trail_ribbon_width: float = 0.7
+@export_group("Trail Ribbon")
+@export_range(0.0, 1.0) var ribbon_alpha: float = 0.6
+@export_range(0.1, 2.0) var ribbon_width: float = 0.7
 
 @export_group("Animation")
-@export_range(0.1, 2.0) var turn_duration: float = 0.8
-@export_range(0.1, 2.0) var full_mode_speed: float = 0.3
+@export_range(0.1, 2.0, 0.1, "suffix:s") var full_mode_speed: float = 0.3
+@export_range(0.1, 2.0, 0.1, "suffix:s") var shift_pulse_period: float = 0.6
+# ... 91 total exports covering colors, alphas, widths, radii,
+#     animation speeds, disruption visuals, fate icons, terrain, etc.
 ```
 
 ---
@@ -307,12 +302,13 @@ Extracted 862 lines of battle drawing code into `scripts/battle_renderer.gd` as 
 - Update BattleRenderer: change `_parent.xxx` refs to `_state.xxx` refs
 - **Risk:** Highest-risk phase — touches every file. Must preserve exact behavior.
 
-#### Phase 8: VisualConfig Resource — TODO
-- Create `scripts/resources/visual_config.gd` (`class_name VisualConfig extends Resource`)
-- @export all colors (C_BG, C_P1, C_P2, etc.), font sizes, trail opacities, animation params
-- Create `resources/config/visual_config.tres`
-- Replace hardcoded color consts in HexMoveDemo.gd and battle_renderer.gd
-- **Low risk:** Pure data extraction, no logic changes.
+#### Phase 8: VisualConfig Resource — DONE
+- Created `scripts/resources/visual_config.gd` (207 lines, 91 @export vars in 16 groups)
+- Created `resources/config/visual_config.tres` with all defaults
+- HexMoveDemo.gd: 8 `const C_xxx` → property getters backed by `_visual`, animation params wired
+- battle_renderer.gd: ~80+ inline Color/alpha/width values → `_v.xxx` references
+- Both files preload the resource independently (decoupled)
+- **Pure data extraction — no logic changes, all tests pass.**
 
 #### Phase 9: HUD → Control Nodes — TODO
 - Create `scenes/hud/` directory with `.tscn` files for each panel

@@ -3,6 +3,7 @@ extends Node2D
 
 # Reference to parent HexMoveDemo for reading state
 var _parent: Node2D
+var _v: VisualConfig = preload("res://resources/config/visual_config.tres")
 
 func init(parent: Node2D):
 	_parent = parent
@@ -16,7 +17,7 @@ func _draw():
 		return
 	var vp = get_viewport_rect().size
 	if not _parent._terrain_map:
-		draw_rect(Rect2(Vector2.ZERO, vp), _parent.C_BG)
+		draw_rect(Rect2(Vector2.ZERO, vp), _v.color_background)
 
 	if _parent.replay_mode:
 		_draw_replay()
@@ -47,7 +48,7 @@ func _draw():
 
 	# Dark fog overlay for CHANGED mode — dims tiles so only changes pop
 	if _parent.phase == _parent.Phase.DEPLOY and _parent.view_mode == _parent.ViewMode.CHANGED and not _parent.preview_sim.is_empty():
-		draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.70))
+		draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, _v.changed_fog_alpha))
 
 	if not draw_sim.is_empty():
 		_draw_sim(draw_sim, use_preview)
@@ -67,12 +68,12 @@ func _draw_tile(col: int, row: int):
 		var dest = Rect2(center - Vector2(tw * 0.5, th * 0.35), Vector2(tw, th))
 		draw_texture_rect(_parent.tile_tex, dest, false)
 	elif not _parent._terrain_map:
-		draw_colored_polygon(corners, _parent.C_FIELD)
+		draw_colored_polygon(corners, _v.color_hex_fill)
 
 	# Outline
 	var outline_pts = PackedVector2Array(corners)
 	outline_pts.append(corners[0])
-	draw_polyline(outline_pts, Color(_parent.C_STROKE.r, _parent.C_STROKE.g, _parent.C_STROKE.b, 0.5), 0.5)
+	draw_polyline(outline_pts, Color(_v.color_hex_stroke.r, _v.color_hex_stroke.g, _v.color_hex_stroke.b, _v.hex_stroke_alpha), 0.5)
 
 	# Terrain sprite overlay (non-grass hexes)
 	var terrain = _parent._get_terrain_at(col, row)
@@ -85,32 +86,32 @@ func _draw_tile(col: int, row: int):
 			draw_texture_rect(t_sprite, dest, false)
 		else:
 			var t_tint = terrain.tile_color
-			t_tint.a = 0.35
+			t_tint.a = _v.terrain_tint_alpha
 			draw_colored_polygon(corners, t_tint)
 		var t_outline = PackedVector2Array(corners)
 		t_outline.append(corners[0])
-		var t_color = Color(0.2, 0.5, 0.2) if terrain.terrain_key == "forest" else Color(0.2, 0.4, 0.7)
-		draw_polyline(t_outline, t_color, 2.5 * _parent.cam_zoom)
+		var t_color = _v.forest_outline_color if terrain.terrain_key == "forest" else _v.water_outline_color
+		draw_polyline(t_outline, t_color, _v.terrain_outline_width * _parent.cam_zoom)
 
 	# Zone tint overlay
 	var tint = Color(0, 0, 0, 0)
 	if row >= _parent.P1_DEPLOY_ROWS_MIN and row <= _parent.P1_DEPLOY_ROWS_MAX and col >= _parent.DEPLOY_C_MIN and col <= _parent.DEPLOY_C_MAX:
-		var a = 0.30 if (_parent.active_player == 1 and _parent.phase == _parent.Phase.DEPLOY) else 0.10
-		tint = Color(_parent.C_P1.r, _parent.C_P1.g, _parent.C_P1.b, a)
+		var a = _v.deploy_zone_alpha_active if (_parent.active_player == 1 and _parent.phase == _parent.Phase.DEPLOY) else _v.deploy_zone_alpha_inactive
+		tint = Color(_v.color_p1.r, _v.color_p1.g, _v.color_p1.b, a)
 	elif row >= _parent.P2_DEPLOY_ROWS_MIN and row <= _parent.P2_DEPLOY_ROWS_MAX and col >= _parent.DEPLOY_C_MIN and col <= _parent.DEPLOY_C_MAX:
-		var a = 0.30 if (_parent.active_player == 2 and _parent.phase == _parent.Phase.DEPLOY) else 0.10
-		tint = Color(_parent.C_P2.r, _parent.C_P2.g, _parent.C_P2.b, a)
+		var a = _v.deploy_zone_alpha_active if (_parent.active_player == 2 and _parent.phase == _parent.Phase.DEPLOY) else _v.deploy_zone_alpha_inactive
+		tint = Color(_v.color_p2.r, _v.color_p2.g, _v.color_p2.b, a)
 
 	for i in _parent.OBJECTIVES.size():
 		var obj = _parent.OBJECTIVES[i]
 		var ctrl = _parent._obj_control[i] if i < _parent._obj_control.size() else 0
-		var ctrl_color = _parent.C_BANNER
-		if ctrl == 1: ctrl_color = _parent.C_P1
-		elif ctrl == 2: ctrl_color = _parent.C_P2
+		var ctrl_color = _v.color_banner
+		if ctrl == 1: ctrl_color = _v.color_p1
+		elif ctrl == 2: ctrl_color = _v.color_p2
 		if _parent.hex_dist(col, row, obj.x, obj.y) <= _parent.OC_RADIUS:
-			tint = tint.lerp(Color(ctrl_color.r, ctrl_color.g, ctrl_color.b, 0.25), 0.5)
+			tint = tint.lerp(Color(ctrl_color.r, ctrl_color.g, ctrl_color.b, _v.objective_zone_alpha), 0.5)
 		if col == obj.x and row == obj.y:
-			tint = Color(ctrl_color.r, ctrl_color.g, ctrl_color.b, 0.45)
+			tint = Color(ctrl_color.r, ctrl_color.g, ctrl_color.b, _v.objective_hex_alpha)
 
 	if tint.a > 0.0:
 		draw_colored_polygon(corners, tint)
@@ -122,34 +123,34 @@ func _draw_tile(col: int, row: int):
 			var vp_delta: int = _parent.deploy_heatmap[hid]
 			if vp_delta > 0 and _parent._heatmap_max > 0:
 				var t = clampf(float(vp_delta) / _parent._heatmap_max, 0.0, 1.0)
-				var intensity = lerpf(0.08, 0.7, t * t)
-				draw_colored_polygon(corners, Color(0.15, 1.0, 0.25, intensity))
+				var intensity = lerpf(_v.heatmap_min_intensity, _v.heatmap_max_intensity, t * t)
+				draw_colored_polygon(corners, Color(_v.heatmap_positive_color.r, _v.heatmap_positive_color.g, _v.heatmap_positive_color.b, intensity))
 			elif vp_delta < 0 and _parent._heatmap_min < 0:
 				var t = clampf(float(-vp_delta) / -_parent._heatmap_min, 0.0, 1.0)
-				var intensity = lerpf(0.08, 0.7, t * t)
-				draw_colored_polygon(corners, Color(1.0, 0.15, 0.15, intensity))
+				var intensity = lerpf(_v.heatmap_min_intensity, _v.heatmap_max_intensity, t * t)
+				draw_colored_polygon(corners, Color(_v.heatmap_negative_color.r, _v.heatmap_negative_color.g, _v.heatmap_negative_color.b, intensity))
 
 	# Deep strike legal hex highlighting
 	if _parent.deploy_unit_type == "deep_strike" and _parent.ds_arrival_turn > 0 and not _parent.selecting_unit and not _parent.ds_selecting_turn:
 		if _parent.ds_legal_hexes.has(_parent.hex_id(col, row)):
-			draw_colored_polygon(corners, Color(0.2, 0.8, 0.8, 0.12))
+			draw_colored_polygon(corners, _v.ds_legal_color)
 		else:
-			draw_colored_polygon(corners, Color(0.8, 0.2, 0.2, 0.05))
+			draw_colored_polygon(corners, _v.ds_illegal_color)
 
 	# Hover highlight
 	if _parent.hover_hex.x == col and _parent.hover_hex.y == row:
-		draw_colored_polygon(corners, Color(1, 1, 1, 0.20))
+		draw_colored_polygon(corners, _v.hover_hex_color)
 
 	# Objective flip glow (preview diff)
 	var obj_flips: Array = _parent.preview_diff.get("obj_flips", [])
 	for i in _parent.OBJECTIVES.size():
 		if i < obj_flips.size() and obj_flips[i]:
 			if _parent.hex_dist(col, row, _parent.OBJECTIVES[i].x, _parent.OBJECTIVES[i].y) <= _parent.OC_RADIUS:
-				draw_colored_polygon(corners, Color(1.0, 0.9, 0.2, 0.15))
+				draw_colored_polygon(corners, _v.objective_flip_glow)
 			if col == _parent.OBJECTIVES[i].x and row == _parent.OBJECTIVES[i].y:
 				var glow_pts = PackedVector2Array(corners)
 				glow_pts.append(corners[0])
-				draw_polyline(glow_pts, Color(1.0, 0.9, 0.2, 0.7), 2.5)
+				draw_polyline(glow_pts, Color(_v.objective_flip_glow.r, _v.objective_flip_glow.g, _v.objective_flip_glow.b, 0.7), 2.5)
 
 	# Objective banner
 	for i in _parent.OBJECTIVES.size():
@@ -177,11 +178,12 @@ func _draw_unit_final(uid: int, final_units: Array, timelines: Array, formations
 	if u.eliminated:
 		for fh in final_form:
 			var center = _parent.hex_to_pixel(fh.x, fh.y)
-			var r = 8.0 * _parent.cam_zoom
+			var r = _v.elim_cross_radius * _parent.cam_zoom
+			var ea = _v.elim_cross_alpha_ghost if is_ghost else _v.elim_cross_alpha
 			draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
-				Color(0.9, 0.2, 0.2, 0.35 if is_ghost else 0.7), 2.5)
+				Color(_v.elim_cross_color.r, _v.elim_cross_color.g, _v.elim_cross_color.b, ea), _v.elim_cross_width)
 			draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
-				Color(0.9, 0.2, 0.2, 0.35 if is_ghost else 0.7), 2.5)
+				Color(_v.elim_cross_color.r, _v.elim_cross_color.g, _v.elim_cross_color.b, ea), _v.elim_cross_width)
 	else:
 		for fh in final_form:
 			var center = _parent.hex_to_pixel(fh.x, fh.y)
@@ -193,8 +195,8 @@ func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, forma
 	var ftl: Array = formations_tl[uid] if uid < formations_tl.size() else []
 	var alive_until = u.elim_turn if u.eliminated else _parent.TURNS
 	var max_ti = mini(alive_until + 1, trail.size() - 1)
-	var base = _parent.C_P1 if u.player == 1 else _parent.C_P2
-	var highlight_a = 0.25 if is_preview_unit else 0.30
+	var base = _v.color_p1 if u.player == 1 else _v.color_p2
+	var highlight_a = _v.highlight_alpha_preview if is_preview_unit else _v.highlight_alpha
 	# Path hex highlights — highlight all formation hexes per turn
 	for ti in (max_ti + 1):
 		var pos = trail[ti]
@@ -205,8 +207,8 @@ func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, forma
 			var hcorners = _parent.hex_corners(hc)
 			draw_colored_polygon(hcorners, Color(base.r, base.g, base.b, highlight_a))
 	# Snail trail ribbon (uses anchor positions)
-	var ribbon_w = _parent.HEX_SIZE * (0.6 if is_preview_unit else 0.7) * _parent.cam_zoom
-	var ribbon_a = 0.50 if is_preview_unit else 0.6
+	var ribbon_w = _parent.HEX_SIZE * (_v.ribbon_width_preview if is_preview_unit else _v.ribbon_width) * _parent.cam_zoom
+	var ribbon_a = _v.ribbon_alpha_preview if is_preview_unit else _v.ribbon_alpha
 	var is_disrupted = u.disrupted and u.disrupted_turn >= 0
 	var disrupt_ti = (u.disrupted_turn + 1) if is_disrupted else -1
 	for ti in max_ti:
@@ -227,8 +229,8 @@ func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, forma
 		if yank_pos != Vector2i(-1, -1):
 			var pa = _parent.hex_to_pixel(u.disrupted_from.x, u.disrupted_from.y)
 			var pb = _parent.hex_to_pixel(yank_pos.x, yank_pos.y)
-			var disrupt_color = Color(0.8, 0.2, 1.0, 0.9)
-			var seg_len = 6.0 * _parent.cam_zoom
+			var disrupt_color = _v.disruption_color
+			var seg_len = _v.disruption_seg_length * _parent.cam_zoom
 			var total = pa.distance_to(pb)
 			if total > 0:
 				var ddir = (pb - pa).normalized()
@@ -239,12 +241,12 @@ func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, forma
 					var t1 = float(si + 1) / float(maxi(steps, 1))
 					var p0 = pa.lerp(pb, t0) + perp2 * (seg_len * (0.5 if si % 2 == 0 else -0.5))
 					var p1 = pa.lerp(pb, t1) + perp2 * (seg_len * (0.5 if (si + 1) % 2 == 0 else -0.5))
-					draw_line(p0, p1, disrupt_color, 2.5 * _parent.cam_zoom)
-			var r2 = 10.0 * _parent.cam_zoom
-			draw_line(pa + Vector2(-r2, -r2), pa + Vector2(r2, r2), disrupt_color, 2.5 * _parent.cam_zoom)
-			draw_line(pa + Vector2(r2, -r2), pa + Vector2(-r2, r2), disrupt_color, 2.5 * _parent.cam_zoom)
+					draw_line(p0, p1, disrupt_color, _v.disruption_x_width * _parent.cam_zoom)
+			var r2 = _v.disruption_x_radius * _parent.cam_zoom
+			draw_line(pa + Vector2(-r2, -r2), pa + Vector2(r2, r2), disrupt_color, _v.disruption_x_width * _parent.cam_zoom)
+			draw_line(pa + Vector2(r2, -r2), pa + Vector2(-r2, r2), disrupt_color, _v.disruption_x_width * _parent.cam_zoom)
 	# Snail trail ghost tokens with caterpillar taper — draw on all formation hexes
-	var worm_alpha = 0.75 if is_preview_unit else 0.85
+	var worm_alpha = _v.worm_alpha_preview if is_preview_unit else _v.worm_alpha
 	for ti in (max_ti + 1):
 		var pos = trail[ti]
 		if pos == Vector2i(-1, -1): continue
@@ -262,7 +264,7 @@ func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, forma
 			for interp in [0.17, 0.33, 0.50, 0.67, 0.83]:
 				var mid = center.lerp(next_center, interp)
 				var interp_frame = ti if interp < 0.5 else ti + 1
-				_draw_unit_token_scaled(mid, u.player, u.models, u.unit_type, worm_alpha * 0.85, 0.7, interp_frame)
+				_draw_unit_token_scaled(mid, u.player, u.models, u.unit_type, worm_alpha * _v.interp_alpha_multiplier, _v.interp_token_scale, interp_frame)
 	# Current-turn token — draw at all formation hexes
 	var cur_idx = mini(display_turn, trail.size() - 1)
 	if trail[cur_idx] != Vector2i(-1, -1):
@@ -270,11 +272,11 @@ func _draw_single_timeline(uid: int, final_units: Array, timelines: Array, forma
 		if u.eliminated and u.elim_turn <= display_turn - 1:
 			for fh in cur_form:
 				var center = _parent.hex_to_pixel(fh.x, fh.y)
-				var r = 8.0 * _parent.cam_zoom
+				var r = _v.elim_cross_radius * _parent.cam_zoom
 				draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
-					Color(0.9, 0.2, 0.2, 0.7), 2.5)
+					Color(_v.elim_cross_color.r, _v.elim_cross_color.g, _v.elim_cross_color.b, _v.elim_cross_alpha), _v.elim_cross_width)
 				draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
-					Color(0.9, 0.2, 0.2, 0.7), 2.5)
+					Color(_v.elim_cross_color.r, _v.elim_cross_color.g, _v.elim_cross_color.b, _v.elim_cross_alpha), _v.elim_cross_width)
 		else:
 			for fh in cur_form:
 				var center = _parent.hex_to_pixel(fh.x, fh.y)
@@ -320,9 +322,9 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 		var h_trail: Array = timelines[_parent.hover_trail_uid]
 		var h_alive = hu.elim_turn if hu.eliminated else _parent.TURNS
 		var h_max = mini(h_alive + 1, h_ftl.size() - 1)
-		var h_color = _parent.C_P1 if hu.player == 1 else _parent.C_P2
-		var glow = Color(h_color.r, h_color.g, h_color.b, 0.85)
-		var outline_col = Color(1, 1, 1, 0.9)
+		var h_color = _v.color_p1 if hu.player == 1 else _v.color_p2
+		var glow = Color(h_color.r, h_color.g, h_color.b, _v.hover_glow_alpha)
+		var outline_col = Color(1, 1, 1, _v.hover_outline_alpha)
 		# Glow on all formation hexes — double pass for stronger effect
 		for ti in (h_max + 1):
 			var form: Array = h_ftl[ti] if ti < h_ftl.size() else []
@@ -331,9 +333,9 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 				var hc = _parent.hex_to_pixel(fh.x, fh.y)
 				var hcorners = _parent.hex_corners(hc)
 				draw_colored_polygon(hcorners, glow)
-				draw_polyline(hcorners + PackedVector2Array([hcorners[0]]), outline_col, 4.0)
+				draw_polyline(hcorners + PackedVector2Array([hcorners[0]]), outline_col, _v.hover_outline_width)
 		# Bright ribbon along trail
-		var h_ribbon_w = _parent.HEX_SIZE * 1.1 * _parent.cam_zoom
+		var h_ribbon_w = _parent.HEX_SIZE * _v.ribbon_width_hover * _parent.cam_zoom
 		for ti in h_max:
 			var from_pos = h_trail[ti]
 			var to_pos = h_trail[ti + 1]
@@ -344,27 +346,27 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 			var dir = (pb - pa).normalized()
 			var perp = Vector2(-dir.y, dir.x) * h_ribbon_w
 			var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
-			draw_colored_polygon(quad, Color(h_color.r, h_color.g, h_color.b, 0.7))
+			draw_colored_polygon(quad, Color(h_color.r, h_color.g, h_color.b, _v.hover_ribbon_alpha))
 
 	# --- 0) Changed trail crossfade (CHANGED mode preview only) ---
 	if is_preview and effective_mode == _parent.ViewMode.CHANGED and not changed.is_empty() and not _parent.confirmed_sim.is_empty():
-		var cycle = fmod(_parent._diff_flash_time, 4.0)
+		var cycle = fmod(_parent._diff_flash_time, _v.changed_cycle_duration)
 		var old_blend: float
-		if cycle < 1.5:
+		if cycle < _v.changed_show_duration:
 			old_blend = 1.0
-		elif cycle < 2.0:
-			var t = (cycle - 1.5) / 0.5
+		elif cycle < _v.changed_show_duration + _v.changed_fade_duration:
+			var t = (cycle - _v.changed_show_duration) / _v.changed_fade_duration
 			old_blend = 1.0 - t * t * (3.0 - 2.0 * t)
-		elif cycle < 3.5:
+		elif cycle < _v.changed_cycle_duration - _v.changed_fade_duration:
 			old_blend = 0.0
 		else:
-			var t = (cycle - 3.5) / 0.5
+			var t = (cycle - (_v.changed_cycle_duration - _v.changed_fade_duration)) / _v.changed_fade_duration
 			old_blend = t * t * (3.0 - 2.0 * t)
 		var new_blend = 1.0 - old_blend
 		var old_timelines: Array = _parent.confirmed_sim.get("timelines", [])
 		var old_units: Array = _parent.confirmed_sim.get("units", [])
-		var old_col = Color(0.75, 0.55, 0.95)  # pale purple
-		var new_col = Color(1.0, 0.95, 0.45)   # pale yellow
+		var old_col = _v.changed_old_color
+		var new_col = _v.changed_new_color
 		for uid in changed:
 			# Skip the preview unit itself (it has no "old" path)
 			if uid >= old_timelines.size(): continue
@@ -382,9 +384,9 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 					var pa = _parent.hex_to_pixel(from_pos.x, from_pos.y)
 					var pb = _parent.hex_to_pixel(to_pos.x, to_pos.y)
 					var dir = (pb - pa).normalized()
-					var perp = Vector2(-dir.y, dir.x) * _parent.HEX_SIZE * 0.9 * _parent.cam_zoom
+					var perp = Vector2(-dir.y, dir.x) * _parent.HEX_SIZE * _v.changed_ribbon_width * _parent.cam_zoom
 					var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
-					draw_colored_polygon(quad, Color(old_col.r, old_col.g, old_col.b, 0.80 * old_blend))
+					draw_colored_polygon(quad, Color(old_col.r, old_col.g, old_col.b, _v.changed_ribbon_alpha * old_blend))
 				var old_ftl: Array = _parent.confirmed_sim.get("formations_timeline", [])
 				if uid < old_ftl.size():
 					for ti in (max_ti + 1):
@@ -393,8 +395,8 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 							if fh == Vector2i(-1, -1): continue
 							var hc = _parent.hex_to_pixel(fh.x, fh.y)
 							var hcorners = _parent.hex_corners(hc)
-							draw_colored_polygon(hcorners, Color(old_col.r, old_col.g, old_col.b, 0.55 * old_blend))
-							draw_polyline(hcorners + PackedVector2Array([hcorners[0]]), Color(old_col.r, old_col.g, old_col.b, 0.80 * old_blend), 2.0)
+							draw_colored_polygon(hcorners, Color(old_col.r, old_col.g, old_col.b, _v.changed_hex_alpha * old_blend))
+							draw_polyline(hcorners + PackedVector2Array([hcorners[0]]), Color(old_col.r, old_col.g, old_col.b, _v.changed_ribbon_alpha * old_blend), 2.0)
 			# NEW path (pale yellow)
 			if new_blend > 0.02 and uid < timelines.size():
 				var new_trail: Array = timelines[uid]
@@ -409,9 +411,9 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 					var pa = _parent.hex_to_pixel(from_pos.x, from_pos.y)
 					var pb = _parent.hex_to_pixel(to_pos.x, to_pos.y)
 					var dir = (pb - pa).normalized()
-					var perp = Vector2(-dir.y, dir.x) * _parent.HEX_SIZE * 0.9 * _parent.cam_zoom
+					var perp = Vector2(-dir.y, dir.x) * _parent.HEX_SIZE * _v.changed_ribbon_width * _parent.cam_zoom
 					var quad = PackedVector2Array([pa + perp, pa - perp, pb - perp, pb + perp])
-					draw_colored_polygon(quad, Color(new_col.r, new_col.g, new_col.b, 0.80 * new_blend))
+					draw_colored_polygon(quad, Color(new_col.r, new_col.g, new_col.b, _v.changed_ribbon_alpha * new_blend))
 				if uid < formations_tl.size():
 					for ti in (new_max + 1):
 						var form: Array = formations_tl[uid][ti] if ti < formations_tl[uid].size() else []
@@ -419,8 +421,8 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 							if fh == Vector2i(-1, -1): continue
 							var hc = _parent.hex_to_pixel(fh.x, fh.y)
 							var hcorners = _parent.hex_corners(hc)
-							draw_colored_polygon(hcorners, Color(new_col.r, new_col.g, new_col.b, 0.55 * new_blend))
-							draw_polyline(hcorners + PackedVector2Array([hcorners[0]]), Color(new_col.r, new_col.g, new_col.b, 0.80 * new_blend), 2.0)
+							draw_colored_polygon(hcorners, Color(new_col.r, new_col.g, new_col.b, _v.changed_hex_alpha * new_blend))
+							draw_polyline(hcorners + PackedVector2Array([hcorners[0]]), Color(new_col.r, new_col.g, new_col.b, _v.changed_ribbon_alpha * new_blend), 2.0)
 		# Phase label tooltip — "WITHOUT" / "WITH UNIT" follows cursor
 		var cw_font = ThemeDB.fallback_font
 		var cw_fs = 15
@@ -466,9 +468,9 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 		var alive_until = u.elim_turn if u.eliminated else _parent.TURNS
 		var max_ti = mini(alive_until + 1, trail.size() - 1)
 		var is_preview_unit = (is_preview and uid == timelines.size() - 1)
-		var base = _parent.C_P1 if u.player == 1 else _parent.C_P2
-		var highlight_a = 0.25 if is_preview_unit else 0.30
-		if effective_mode == _parent.ViewMode.CHANGED: highlight_a = 0.50
+		var base = _v.color_p1 if u.player == 1 else _v.color_p2
+		var highlight_a = _v.highlight_alpha_preview if is_preview_unit else _v.highlight_alpha
+		if effective_mode == _parent.ViewMode.CHANGED: highlight_a = _v.highlight_alpha_changed
 
 		for ti in (max_ti + 1):
 			var pos = trail[ti]
@@ -487,14 +489,14 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 		var alive_until = u.elim_turn if u.eliminated else _parent.TURNS
 		var max_ti = mini(alive_until + 1, trail.size() - 1)
 		var is_preview_unit = (is_preview and uid == timelines.size() - 1)
-		var base = _parent.C_P1 if u.player == 1 else _parent.C_P2
+		var base = _v.color_p1 if u.player == 1 else _v.color_p2
 
 		# Snail trail: filled ribbon between consecutive positions
-		var ribbon_w = _parent.HEX_SIZE * (0.6 if is_preview_unit else 0.7) * _parent.cam_zoom
-		var ribbon_a = 0.50 if is_preview_unit else 0.6
+		var ribbon_w = _parent.HEX_SIZE * (_v.ribbon_width_preview if is_preview_unit else _v.ribbon_width) * _parent.cam_zoom
+		var ribbon_a = _v.ribbon_alpha_preview if is_preview_unit else _v.ribbon_alpha
 		if effective_mode == _parent.ViewMode.CHANGED:
-			ribbon_a = 0.85
-			ribbon_w = _parent.HEX_SIZE * 0.85 * _parent.cam_zoom
+			ribbon_a = _v.ribbon_alpha_changed
+			ribbon_w = _parent.HEX_SIZE * _v.ribbon_width_changed * _parent.cam_zoom
 		# Check if this unit was disrupted (for visual break in ribbon)
 		var is_disrupted = u.disrupted and u.disrupted_turn >= 0
 		var disrupt_ti = (u.disrupted_turn + 1) if is_disrupted else -1
@@ -520,8 +522,8 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 			if yank_pos != Vector2i(-1, -1):
 				var pa = _parent.hex_to_pixel(u.disrupted_from.x, u.disrupted_from.y)
 				var pb = _parent.hex_to_pixel(yank_pos.x, yank_pos.y)
-				var disrupt_color = Color(0.8, 0.2, 1.0, 0.9)
-				var seg_len = 6.0 * _parent.cam_zoom
+				var disrupt_color = _v.disruption_color
+				var seg_len = _v.disruption_seg_length * _parent.cam_zoom
 				var total = pa.distance_to(pb)
 				if total > 0:
 					var dir = (pb - pa).normalized()
@@ -532,10 +534,10 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 						var t1 = float(si + 1) / float(maxi(steps, 1))
 						var p0 = pa.lerp(pb, t0) + perp * (seg_len * (0.5 if si % 2 == 0 else -0.5))
 						var p1 = pa.lerp(pb, t1) + perp * (seg_len * (0.5 if (si + 1) % 2 == 0 else -0.5))
-						draw_line(p0, p1, disrupt_color, 2.5 * _parent.cam_zoom)
-				var r = 10.0 * _parent.cam_zoom
-				draw_line(pa + Vector2(-r, -r), pa + Vector2(r, r), disrupt_color, 2.5 * _parent.cam_zoom)
-				draw_line(pa + Vector2(r, -r), pa + Vector2(-r, r), disrupt_color, 2.5 * _parent.cam_zoom)
+						draw_line(p0, p1, disrupt_color, _v.disruption_x_width * _parent.cam_zoom)
+				var r = _v.disruption_x_radius * _parent.cam_zoom
+				draw_line(pa + Vector2(-r, -r), pa + Vector2(r, r), disrupt_color, _v.disruption_x_width * _parent.cam_zoom)
+				draw_line(pa + Vector2(r, -r), pa + Vector2(-r, r), disrupt_color, _v.disruption_x_width * _parent.cam_zoom)
 
 	# --- 3) Ghost tokens at each turn position (all formation hexes) ---
 	for uid in timelines.size():
@@ -547,8 +549,8 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 		var max_ti = mini(alive_until + 1, trail.size() - 1)
 		var is_preview_unit = (is_preview and uid == timelines.size() - 1)
 
-		var worm_alpha = 0.75 if is_preview_unit else 0.85
-		if effective_mode == _parent.ViewMode.CHANGED: worm_alpha = 0.95
+		var worm_alpha = _v.worm_alpha_preview if is_preview_unit else _v.worm_alpha
+		if effective_mode == _parent.ViewMode.CHANGED: worm_alpha = _v.worm_alpha_changed
 		for ti in (max_ti + 1):
 			var pos = trail[ti]
 			if pos == Vector2i(-1, -1): continue
@@ -565,7 +567,7 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 				for interp in [0.17, 0.33, 0.50, 0.67, 0.83]:
 					var mid = anchor_center.lerp(next_center, interp)
 					var interp_frame = ti if interp < 0.5 else ti + 1
-					_draw_unit_token_scaled(mid, u.player, u.models, u.unit_type, worm_alpha * 0.85, 0.7, interp_frame)
+					_draw_unit_token_scaled(mid, u.player, u.models, u.unit_type, worm_alpha * _v.interp_alpha_multiplier, _v.interp_token_scale, interp_frame)
 
 	if show_anim_scan:
 		# --- 4) Combat sparks (only in CLEAN mode with animation) ---
@@ -581,7 +583,7 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 				var ac = _parent.hex_to_pixel(ev.ac, ev.ar)
 				var bc = _parent.hex_to_pixel(ev.bc, ev.br)
 				var mid_pt = (ac + bc) * 0.5
-				draw_circle(mid_pt, 14.0 * _parent.cam_zoom, Color(_parent.C_COMBAT.r, _parent.C_COMBAT.g, _parent.C_COMBAT.b, 0.20))
+				draw_circle(mid_pt, _v.combat_aura_radius * _parent.cam_zoom, Color(_v.color_combat.r, _v.color_combat.g, _v.color_combat.b, _v.combat_aura_alpha))
 				_draw_swords(mid_pt)
 
 		# --- 5) Current-turn tokens on top (at formation hexes) ---
@@ -599,11 +601,11 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 			if u.eliminated and u.elim_turn <= display_turn - 1:
 				for fh in cur_form:
 					var center = _parent.hex_to_pixel(fh.x, fh.y)
-					var r = 8.0 * _parent.cam_zoom
+					var r = _v.elim_cross_radius * _parent.cam_zoom
 					draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
-						Color(0.9, 0.2, 0.2, 0.7), 2.5)
+						Color(_v.elim_cross_color.r, _v.elim_cross_color.g, _v.elim_cross_color.b, _v.elim_cross_alpha), _v.elim_cross_width)
 					draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
-						Color(0.9, 0.2, 0.2, 0.7), 2.5)
+						Color(_v.elim_cross_color.r, _v.elim_cross_color.g, _v.elim_cross_color.b, _v.elim_cross_alpha), _v.elim_cross_width)
 				continue
 			for fh in cur_form:
 				var center = _parent.hex_to_pixel(fh.x, fh.y)
@@ -612,7 +614,7 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 	# --- 6) Fate icons during preview (sword/death/survival) ---
 	if is_preview and not _parent.preview_diff.is_empty():
 		var fate_changes: Array = _parent.preview_diff.get("fate_changes", [])
-		var icon_size = _parent.HEX_SIZE * 2.5 * _parent.cam_zoom
+		var icon_size = _parent.HEX_SIZE * _v.fate_icon_scale * _parent.cam_zoom
 		for fc in fate_changes:
 			var uid_fc: int = fc.uid
 			if uid_fc >= timelines.size(): continue
@@ -626,14 +628,14 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 				final_pos = trail_fc[trail_fc.size() - 1]
 			if final_pos == Vector2i(-1, -1): continue
 			var center = _parent.hex_to_pixel(final_pos.x, final_pos.y)
-			var team_tint = _parent.C_P1 if u_fc.player == 1 else _parent.C_P2
+			var team_tint = _v.color_p1 if u_fc.player == 1 else _v.color_p2
 			if fc.fate == "now_dies" and _parent._icon_death:
-				var death_offset = Vector2(icon_size * 0.5, -icon_size * 0.3)
-				var death_rect = Rect2(center + death_offset - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
+				var death_off = _v.death_icon_offset * icon_size
+				var death_rect = Rect2(center + death_off - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
 				draw_texture_rect(_parent._icon_death, death_rect, false, team_tint)
 			elif fc.fate == "now_survives" and _parent._icon_survive:
-				var surv_offset = Vector2(0, -icon_size * 1.0)
-				var surv_rect = Rect2(center + surv_offset - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
+				var surv_off = _v.survival_icon_offset * icon_size
+				var surv_rect = Rect2(center + surv_off - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
 				draw_texture_rect(_parent._icon_survive, surv_rect, false, team_tint)
 		# Sword icons for combat victories
 		for uid_s in timelines.size():
@@ -655,9 +657,9 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 					break
 			if has_kill and _parent._icon_sword:
 				var center_s = _parent.hex_to_pixel(final_pos_s.x, final_pos_s.y)
-				var sword_offset = Vector2(-icon_size * 0.6, -icon_size * 0.8)
-				var sword_rect = Rect2(center_s + sword_offset, Vector2(icon_size, icon_size))
-				var team_color = _parent.C_P1 if u_s.player == 1 else _parent.C_P2
+				var s_off = _v.sword_icon_offset * icon_size
+				var sword_rect = Rect2(center_s + s_off, Vector2(icon_size, icon_size))
+				var team_color = _v.color_p1 if u_s.player == 1 else _v.color_p2
 				draw_texture_rect(_parent._icon_sword, sword_rect, false, team_color)
 
 # ============================================================================
@@ -665,7 +667,7 @@ func _draw_sim(sim: Dictionary, is_preview: bool):
 # ============================================================================
 
 func _draw_unit_token(center: Vector2, player: int, models: int, unit_type: String, is_ghost: bool, alpha: float, fixed_frame: int = -1):
-	var a = alpha * (0.60 if is_ghost else 1.0)
+	var a = alpha * (_v.ghost_alpha_multiplier if is_ghost else 1.0)
 	var has_sprite = _parent.unit_sprites.has(player) and _parent.unit_sprites[player].has(unit_type)
 	if has_sprite:
 		var tex: Texture2D = _parent.unit_sprites[player][unit_type]["idle"]
@@ -676,16 +678,16 @@ func _draw_unit_token(center: Vector2, player: int, models: int, unit_type: Stri
 		if fixed_frame >= 0:
 			frame_idx = fixed_frame % frame_count
 		else:
-			var anim_speed = 8.0
+			var anim_speed = _v.sprite_anim_speed
 			frame_idx = int(fmod(_parent.anim_turn * anim_speed * _parent.TURN_DURATION + _parent.anim_frac * anim_speed * _parent.TURN_DURATION, frame_count))
 		frame_idx = clampi(frame_idx, 0, frame_count - 1)
 		var src_rect = Rect2(frame_idx * frame_size, 0, frame_size, frame_size)
-		var draw_size = _parent.HEX_SIZE * 4.3 * _parent.cam_zoom * (frame_size / 192.0)
+		var draw_size = _parent.HEX_SIZE * _v.sprite_draw_scale * _parent.cam_zoom * (frame_size / 192.0)
 		var dest_rect = Rect2(center - Vector2(draw_size * 0.5, draw_size * 0.6), Vector2(draw_size, draw_size))
 		draw_texture_rect_region(tex, dest_rect, src_rect, Color(1, 1, 1, a))
 	else:
-		var base = _parent.C_P1 if player == 1 else _parent.C_P2
-		var s = _parent.HEX_SIZE * 0.55 * _parent.cam_zoom
+		var base = _v.color_p1 if player == 1 else _v.color_p2
+		var s = _parent.HEX_SIZE * _v.token_fallback_scale * _parent.cam_zoom
 		var col = Color(base.r, base.g, base.b, a)
 		var segments = 16
 		var circle_pts = PackedVector2Array()
@@ -697,10 +699,10 @@ func _draw_unit_token(center: Vector2, player: int, models: int, unit_type: Stri
 	if not is_ghost and _parent.cam_zoom >= 0.5:
 		var font = ThemeDB.fallback_font
 		draw_string(font, center + Vector2(-5, 5), str(models),
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 1, 1, a))
+			HORIZONTAL_ALIGNMENT_LEFT, -1, _v.model_count_font_size, Color(1, 1, 1, a))
 
 func _draw_unit_token_scaled(center: Vector2, player: int, models: int, unit_type: String, alpha: float, scale_factor: float, fixed_frame: int = -1):
-	var a = alpha * 0.60
+	var a = alpha * _v.ghost_alpha_multiplier
 	var has_sprite = _parent.unit_sprites.has(player) and _parent.unit_sprites[player].has(unit_type)
 	if has_sprite:
 		var tex: Texture2D = _parent.unit_sprites[player][unit_type]["idle"]
@@ -710,12 +712,12 @@ func _draw_unit_token_scaled(center: Vector2, player: int, models: int, unit_typ
 		var frame_idx = (fixed_frame % frame_count) if fixed_frame >= 0 else 0
 		frame_idx = clampi(frame_idx, 0, frame_count - 1)
 		var src_rect = Rect2(frame_idx * frame_size, 0, frame_size, frame_size)
-		var draw_size = _parent.HEX_SIZE * 4.3 * _parent.cam_zoom * scale_factor * (frame_size / 192.0)
+		var draw_size = _parent.HEX_SIZE * _v.sprite_draw_scale * _parent.cam_zoom * scale_factor * (frame_size / 192.0)
 		var dest_rect = Rect2(center - Vector2(draw_size * 0.5, draw_size * 0.6), Vector2(draw_size, draw_size))
 		draw_texture_rect_region(tex, dest_rect, src_rect, Color(1, 1, 1, a))
 	else:
-		var base = _parent.C_P1 if player == 1 else _parent.C_P2
-		var s = _parent.HEX_SIZE * 0.55 * _parent.cam_zoom * scale_factor
+		var base = _v.color_p1 if player == 1 else _v.color_p2
+		var s = _parent.HEX_SIZE * _v.token_fallback_scale * _parent.cam_zoom * scale_factor
 		var col = Color(base.r, base.g, base.b, a)
 		var segments = 16
 		var circle_pts = PackedVector2Array()
@@ -726,26 +728,25 @@ func _draw_unit_token_scaled(center: Vector2, player: int, models: int, unit_typ
 
 func _draw_banner(center: Vector2, idx: int):
 	var sc = _parent.cam_zoom
-	var pole_top = center + Vector2(0, -_parent.HEX_SIZE * sc * 1.1)
-	var pole_bot = center + Vector2(0,  _parent.HEX_SIZE * sc * 0.3)
-	draw_line(pole_bot, pole_top, Color(0.55, 0.45, 0.30), 1.5 * sc)
-	var fw = _parent.HEX_SIZE * sc * 0.5
-	var fh = _parent.HEX_SIZE * sc * 0.5
+	var pole_top = center + Vector2(0, -_parent.HEX_SIZE * sc * _v.banner_top_offset)
+	var pole_bot = center + Vector2(0,  _parent.HEX_SIZE * sc * _v.banner_bottom_offset)
+	draw_line(pole_bot, pole_top, _v.banner_pole_color, _v.banner_pole_width * sc)
+	var fw = _parent.HEX_SIZE * sc * _v.flag_width
+	var fh = _parent.HEX_SIZE * sc * _v.flag_height
 	var ft = pole_top + Vector2(0, fh * 0.05)
-	var flag_cols = [Color(0.85, 0.72, 0.18), Color(0.72, 0.28, 0.14), Color(0.18, 0.55, 0.28)]
 	draw_colored_polygon(PackedVector2Array([
 		ft, ft + Vector2(fw, fh * 0.5), ft + Vector2(0, fh),
-	]), flag_cols[idx % 3])
+	]), _v.flag_colors[idx % _v.flag_colors.size()])
 
 func _draw_swords(center: Vector2):
-	var r = 9.0 * _parent.cam_zoom
+	var r = _v.sword_radius * _parent.cam_zoom
 	for sign_val in [-1.0, 1.0]:
 		var angle = sign_val * PI / 4.0
 		var dir   = Vector2(cos(angle), sin(angle))
 		var perp  = Vector2(-dir.y, dir.x)
-		draw_line(center - dir * r, center + dir * r, _parent.C_SWORD, 2.0)
+		draw_line(center - dir * r, center + dir * r, _v.color_sword, _v.sword_main_width)
 		draw_line(center + dir * r * 0.3 - perp * r * 0.4,
-			center + dir * r * 0.3 + perp * r * 0.4, _parent.C_SWORD.darkened(0.2), 1.5)
+			center + dir * r * 0.3 + perp * r * 0.4, _v.color_sword.darkened(_v.sword_darken), _v.sword_cross_width)
 
 # ============================================================================
 # FINAL STATE & REPLAY
@@ -811,11 +812,11 @@ func _draw_replay():
 		if is_elim:
 			for fh in snap_form:
 				var center = _parent.hex_to_pixel(fh.x, fh.y)
-				var r = 8.0 * _parent.cam_zoom
+				var r = _v.elim_cross_radius * _parent.cam_zoom
 				draw_line(center + Vector2(-r, -r), center + Vector2(r, r),
-					Color(0.9, 0.2, 0.2, 0.7), 2.5)
+					Color(_v.elim_cross_color.r, _v.elim_cross_color.g, _v.elim_cross_color.b, _v.elim_cross_alpha), _v.elim_cross_width)
 				draw_line(center + Vector2(r, -r), center + Vector2(-r, r),
-					Color(0.9, 0.2, 0.2, 0.7), 2.5)
+					Color(_v.elim_cross_color.r, _v.elim_cross_color.g, _v.elim_cross_color.b, _v.elim_cross_alpha), _v.elim_cross_width)
 			continue
 
 		for fh in snap_form:
@@ -829,7 +830,7 @@ func _draw_replay():
 			var ac = _parent.hex_to_pixel(ev.ac, ev.ar)
 			var bc = _parent.hex_to_pixel(ev.bc, ev.br)
 			var mid = (ac + bc) * 0.5
-			draw_circle(mid, 14.0 * _parent.cam_zoom, Color(_parent.C_COMBAT.r, _parent.C_COMBAT.g, _parent.C_COMBAT.b, 0.35))
+			draw_circle(mid, _v.combat_aura_radius * _parent.cam_zoom, Color(_v.color_combat.r, _v.color_combat.g, _v.color_combat.b, _v.combat_aura_alpha_replay))
 			_draw_swords(mid)
 
 	# --- Replay HUD ---
@@ -842,12 +843,12 @@ func _draw_replay():
 	if _parent.replay_turn < vpt.size():
 		score_txt = "   |   VP: BLUE %d - RED %d" % [vpt[_parent.replay_turn][0], vpt[_parent.replay_turn][1]]
 	var hud_txt = "REPLAY  —  Turn %d/%d   (Left/Right to navigate, Esc to exit)%s" % [_parent.replay_turn + 1, _parent.TURNS, score_txt]
-	draw_string(font, Vector2(14, 28), hud_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.95, 0.85, 0.3))
+	draw_string(font, Vector2(14, 28), hud_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, _v.replay_hud_text)
 
 	# Turn indicator bar
-	draw_rect(Rect2(0, 44, vp.x, 4), Color(0.15, 0.14, 0.12))
+	draw_rect(Rect2(0, 44, vp.x, 4), _v.replay_bar_bg)
 	var progress = float(_parent.replay_turn + 1) / float(_parent.TURNS)
-	draw_rect(Rect2(0, 38, vp.x * progress, 4), _parent.C_COMBAT)
+	draw_rect(Rect2(0, 38, vp.x * progress, 4), _v.color_combat)
 
 	# Turn pips at bottom
 	var pip_y = vp.y - 30
@@ -857,6 +858,6 @@ func _draw_replay():
 	for t in _parent.TURNS:
 		var px = pip_start + t * pip_w
 		var is_active = (t == _parent.replay_turn)
-		var pip_col = _parent.C_COMBAT if is_active else Color(0.3, 0.3, 0.3, 0.6)
+		var pip_col = _v.color_combat if is_active else _v.pip_inactive_color
 		draw_rect(Rect2(px + 2, pip_y, pip_w - 4, 12), pip_col)
 		draw_string(font, Vector2(px + 4, pip_y + 10), str(t + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1, 1, 1, 0.8) if is_active else Color(0.6, 0.6, 0.6))

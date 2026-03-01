@@ -17,7 +17,7 @@ This is a **developer testing tool**, not a game. The final game design is uncer
 
 ## Architecture
 
-### Current State (post Phase 5)
+### Current State (post Phase 8)
 ```
 HexMoveDemo (Node2D, z_index=0)        — orchestrator: state, input, deploy, HUD drawing
 ├── TerrainMap (TileMapLayer, z_index=-1)  — terrain data (visual rendering planned)
@@ -27,25 +27,26 @@ HexMoveDemo (Node2D, z_index=0)        — orchestrator: state, input, deploy, H
 | File | Lines | Role |
 |------|-------|------|
 | `HexMoveDemo.gd` | 2,171 | Orchestrator: state, input, deploy, HUD drawing |
-| `scripts/battle_renderer.gd` | 862 | Child Node2D: tiles, trails, tokens, sim rendering |
+| `scripts/battle_renderer.gd` | 863 | Child Node2D: tiles, trails, tokens, sim rendering |
 | `scripts/hex_math.gd` | 94 | Pure hex math (static class) |
 | `scripts/combat_simulator.gd` | 948 | Simulation, AI, pathfinding, combat |
-| `scripts/resources/*.gd` | 4 files | UnitStats, GridConfig, BattleConfig, TerrainType |
-| `resources/**/*.tres` | 10 files | 5 units + 2 config + 3 terrain |
+| `scripts/resources/*.gd` | 5 files | UnitStats, GridConfig, BattleConfig, TerrainType, VisualConfig |
+| `resources/**/*.tres` | 11 files | 5 units + 3 config + 3 terrain |
 | `HeadlessSim.gd` | 304 | CLI simulation runner (uses CombatSimulator directly) |
 
 ### Target Architecture
 See `REFACTOR-NOTES.md` for the full target scene tree. Key changes:
 - **GameState node** — centralized mutable state with signals (replaces `_parent.xxx` pattern)
 - **HUD via CanvasLayer + Control nodes** — replaces all draw_* HUD code
-- **VisualConfig resource** — colors, trail opacities, animation speeds in `.tres`
+- **VisualConfig resource** — DONE. 91 @export vars in `resources/config/visual_config.tres`. Both HexMoveDemo and BattleRenderer preload independently.
 - **TileMapLayer for rendering** — GPU-batched tiles replace 2,240 draw calls/frame
 - **Controller nodes** — deploy and replay logic extracted from HexMoveDemo
 
 ### Migration Status
 - Phases 0-5: DONE (resources, terrain, hex math, simulator, battle renderer)
 - Phase 6 (Node2D HUDRenderer): SKIPPED — going directly to Control nodes
-- Phases 7-12: TODO (GameState, VisualConfig, HUD Controls, Controllers, TileMap, @tool)
+- Phase 8: DONE (VisualConfig resource — 91 exports, colors/alphas/widths/animation in `.tres`)
+- Phases 7, 9-12: TODO (GameState, HUD Controls, Controllers, TileMap, @tool)
 
 ## Game Design Summary
 - Grid: **56 cols × 40 rows**, **FLAT-TOP hex, odd-q offset**

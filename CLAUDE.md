@@ -7,14 +7,14 @@ tactics/              HTML5 canvas tactics prototype  (prototype.html)
 tactics-godot/        Godot 4.6 hex tactics DEVELOPER TESTING TOOL  (main active project)
   HexMoveDemo.gd       Main orchestrator (2,171 lines — state, input, rendering, HUD)
   scripts/
-    battle_renderer.gd  Battle rendering — tiles, trails, tokens (862 lines)
+    battle_renderer.gd  Battle rendering — tiles, trails, tokens (863 lines)
     hex_math.gd         Static pure hex math (94 lines)
     combat_simulator.gd Simulation, AI, pathfinding, combat (948 lines)
-    resources/          Resource class definitions (UnitStats, GridConfig, etc.)
-  resources/            .tres config files (units, grid, battle, terrain)
+    resources/          Resource class definitions (UnitStats, GridConfig, BattleConfig, TerrainType, VisualConfig)
+  resources/            .tres config files (units, grid, battle, visual, terrain)
   HeadlessSim.gd/tscn   Headless CLI sim tool (uses CombatSimulator directly)
   deploy.json           Deployment config for headless sim
-  REFACTOR-NOTES.md     Migration plan and progress (Phases 0-5 done, 7-12 planned)
+  REFACTOR-NOTES.md     Migration plan and progress (Phases 0-5, 8 done; 7, 9-12 planned)
 GAME-DESIGN-DOCUMENT.md
 ```
 
@@ -31,7 +31,8 @@ See `tactics-godot/CLAUDE.md` for Godot-specific rules, `tactics-godot/REFACTOR-
 ## Architecture migration status
 - **Phases 0-5: DONE** — Resources, terrain, hex math, combat simulator, battle renderer extracted
 - **Phase 6 (Node2D HUDRenderer): SKIPPED** — going directly to Control nodes
-- **Phases 7-12: TODO** — GameState extraction, VisualConfig resource, HUD → Control nodes, controller extraction, TileMapLayer rendering, @tool editor preview
+- **Phase 8: DONE** — VisualConfig resource (91 @export vars — colors, alphas, widths, animation in `.tres`)
+- **Phases 7, 9-12: TODO** — GameState extraction, HUD → Control nodes, controller extraction, TileMapLayer rendering, @tool editor preview
 
 Target: Godot-native architecture with CanvasLayer + Control nodes for HUD, TileMapLayer for hex grid, signals for decoupling, @export for all configuration. Dynamic rendering (trails, tokens, combat sparks) stays as draw_*.
 

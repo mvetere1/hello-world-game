@@ -6,6 +6,7 @@ extends Node2D
 
 var _grid: GridConfig = preload("res://resources/config/grid_config.tres")
 var _battle: BattleConfig = preload("res://resources/config/battle_config.tres")
+var _visual: VisualConfig = preload("res://resources/config/visual_config.tres")
 var _unit_resources: Array = [
 	preload("res://resources/units/infantry.tres"),
 	preload("res://resources/units/cavalry.tres"),
@@ -91,15 +92,23 @@ var ARCHER: Dictionary:
 var UNIT_TYPES: Array:
 	get: return _unit_type_keys
 
-# ---- colors ------------------------------------------------------------------
-const C_BG       = Color(0.07, 0.10, 0.18)   # dark navy
-const C_FIELD    = Color(0.11, 0.16, 0.26)   # hex fill
-const C_STROKE   = Color(0.20, 0.28, 0.42)   # hex outline
-const C_P1       = Color(0.28, 0.58, 1.00)   # blue
-const C_P2       = Color(1.00, 0.35, 0.28)   # red
-const C_COMBAT   = Color(1.00, 0.75, 0.10)   # gold / trail color
-const C_BANNER   = Color(0.85, 0.78, 0.32)
-const C_SWORD    = Color(0.80, 0.80, 0.85)
+# ---- colors (backed by VisualConfig resource) --------------------------------
+var C_BG: Color:
+	get: return _visual.color_background
+var C_FIELD: Color:
+	get: return _visual.color_hex_fill
+var C_STROKE: Color:
+	get: return _visual.color_hex_stroke
+var C_P1: Color:
+	get: return _visual.color_p1
+var C_P2: Color:
+	get: return _visual.color_p2
+var C_COMBAT: Color:
+	get: return _visual.color_combat
+var C_BANNER: Color:
+	get: return _visual.color_banner
+var C_SWORD: Color:
+	get: return _visual.color_sword
 
 func _get_stats(unit_type: String) -> Dictionary:
 	return _legacy_stats.get(unit_type, _legacy_stats.get("infantry", {}))
@@ -1345,7 +1354,7 @@ func _process(delta: float):
 		_process_heatmap_batch(2)
 	var speed = TURN_DURATION
 	if phase == Phase.DEPLOY and view_mode == ViewMode.FULL:
-		speed = 0.3  # 2x faster in FULL mode for snail-trail effect
+		speed = _visual.full_mode_speed
 	anim_frac += delta / speed
 	if anim_frac >= 1.0:
 		anim_frac -= 1.0
@@ -1554,9 +1563,9 @@ func _draw_shift_summary():
 		var fate_changes: Array = shift_summary_diff.get("fate_changes", [])
 		var timelines_s: Array = confirmed_sim.get("timelines", [])
 		var units_s: Array = confirmed_sim.get("units", [])
-		# Swell: pulse from 1.0 to 1.5 and back over 0.6s
-		var swell = 1.0 + 0.5 * sin(shift_summary_timer * TAU / 0.6)
-		var icon_size = HEX_SIZE * 2.5 * cam_zoom * swell
+		# Swell: pulse from 1.0 to 1.0+amplitude and back
+		var swell = 1.0 + _visual.shift_pulse_amplitude * sin(shift_summary_timer * TAU / _visual.shift_pulse_period)
+		var icon_size = HEX_SIZE * _visual.fate_icon_scale * cam_zoom * swell
 		for fc in fate_changes:
 			var uid_fc: int = fc.uid
 			if uid_fc >= units_s.size() or uid_fc >= timelines_s.size(): continue
