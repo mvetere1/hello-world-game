@@ -17,36 +17,56 @@ This is a **developer testing tool**, not a game. The final game design is uncer
 
 ## Architecture
 
-### Current State (post Phase 8)
+### Current State (post Phase 9.4 — FateChart)
 ```
-HexMoveDemo (Node2D, z_index=0)        — orchestrator: state, input, deploy, HUD drawing
+HexMoveDemo (Node2D, z_index=0)        — orchestrator: input, deploy, remaining HUD draw_*
+├── GameState (Node)                    — centralized mutable state + signals
 ├── TerrainMap (TileMapLayer, z_index=-1)  — terrain data (visual rendering planned)
-└── BattleRenderer (Node2D, z_index=-1)    — tiles, trails, tokens, sim (created in _ready)
+├── BattleRenderer (Node2D, z_index=-1)    — tiles, trails, tokens, sim (created in _ready)
+└── HUD (CanvasLayer, layer=10)            — HUD Control nodes (created in _ready)
+     ├── TopBar (PanelContainer)           — phase text, view mode buttons, progress bar
+     ├── UnitSelectPopup (ColorRect)       — unit type selection modal (dim overlay + buttons)
+     ├── DSTurnPopup (ColorRect)           — DS arrival turn selection modal
+     └── AnalyticsPanel (VBoxContainer)    — right-side stacking container
+          ├── Scoreboard (PanelContainer)  — VP per turn table (GridContainer)
+          └── FateChart (PanelContainer)   — per-unit stats with fate highlighting
 ```
 
 | File | Lines | Role |
 |------|-------|------|
-| `HexMoveDemo.gd` | 2,171 | Orchestrator: state, input, deploy, HUD drawing |
-| `scripts/battle_renderer.gd` | 863 | Child Node2D: tiles, trails, tokens, sim rendering |
+| `HexMoveDemo.gd` | ~1,858 | Orchestrator: input, deploy, remaining HUD draw_* |
+| `scripts/game_state.gd` | 122 | Centralized mutable state (46 vars, 2 enums, 6 signals) |
+| `scripts/battle_renderer.gd` | 865 | Child Node2D: tiles, trails, tokens, sim rendering |
+| `scripts/hud/top_bar.gd` | 124 | TopBar: phase text, view modes, progress bar, replay/summary buttons |
+| `scripts/hud/unit_select_popup.gd` | 60 | UnitSelectPopup: unit type selection modal |
+| `scripts/hud/ds_turn_popup.gd` | 55 | DSTurnPopup: DS arrival turn selection modal |
+| `scripts/hud/scoreboard.gd` | 98 | Scoreboard: VP per turn table with preview delta |
+| `scripts/hud/fate_chart.gd` | 231 | FateChart: per-unit stats table with fate change highlighting |
 | `scripts/hex_math.gd` | 94 | Pure hex math (static class) |
 | `scripts/combat_simulator.gd` | 948 | Simulation, AI, pathfinding, combat |
 | `scripts/resources/*.gd` | 5 files | UnitStats, GridConfig, BattleConfig, TerrainType, VisualConfig |
-| `resources/**/*.tres` | 11 files | 5 units + 3 config + 3 terrain |
+| `resources/**/*.tres` | 13 files | 5 units + 3 config + 3 terrain + 1 theme |
+| `scenes/hud/*.tscn` | 5 files | TopBar, UnitSelectPopup, DSTurnPopup, Scoreboard, FateChart scenes |
 | `HeadlessSim.gd` | 304 | CLI simulation runner (uses CombatSimulator directly) |
 
 ### Target Architecture
 See `REFACTOR-NOTES.md` for the full target scene tree. Key changes:
-- **GameState node** — centralized mutable state with signals (replaces `_parent.xxx` pattern)
-- **HUD via CanvasLayer + Control nodes** — replaces all draw_* HUD code
-- **VisualConfig resource** — DONE. 91 @export vars in `resources/config/visual_config.tres`. Both HexMoveDemo and BattleRenderer preload independently.
+- **GameState node** — DONE. Centralized mutable state (46 vars, 2 enums, 6 signals). BattleRenderer reads state via `_state.xxx`, config/methods via `_parent.xxx`.
+- **HUD via CanvasLayer + Control nodes** — IN PROGRESS. TopBar (9.1), popups (9.2), scoreboard (9.3) done. Remaining: fate chart, combat log, tooltips, summaries.
+- **VisualConfig resource** — DONE. 102 @export vars in `resources/config/visual_config.tres` (91 original + 11 HUD). HexMoveDemo, BattleRenderer, and TopBar preload independently.
 - **TileMapLayer for rendering** — GPU-batched tiles replace 2,240 draw calls/frame
 - **Controller nodes** — deploy and replay logic extracted from HexMoveDemo
 
 ### Migration Status
 - Phases 0-5: DONE (resources, terrain, hex math, simulator, battle renderer)
 - Phase 6 (Node2D HUDRenderer): SKIPPED — going directly to Control nodes
-- Phase 8: DONE (VisualConfig resource — 91 exports, colors/alphas/widths/animation in `.tres`)
-- Phases 7, 9-12: TODO (GameState, HUD Controls, Controllers, TileMap, @tool)
+- Phase 7: DONE (GameState extraction — 46 state vars, 2 enums, 6 signals in `scripts/game_state.gd`)
+- Phase 8: DONE (VisualConfig resource — 102 exports, colors/alphas/widths/animation/HUD in `.tres`)
+- Phase 9.1: DONE (TopBar → Control node, CanvasLayer + Theme infrastructure)
+- Phase 9.2: DONE (UnitSelectPopup + DSTurnPopup → Control nodes with ColorRect overlay)
+- Phase 9.3: DONE (Scoreboard → PanelContainer with GridContainer, signal-driven updates)
+- Phase 9.4+: TODO (remaining HUD panels: fate chart, combat log, tooltips, summaries)
+- Phases 10-12: TODO (Controllers, TileMap, @tool)
 
 ## Game Design Summary
 - Grid: **56 cols × 40 rows**, **FLAT-TOP hex, odd-q offset**
@@ -114,13 +134,17 @@ Instead of `draw_rect()` + `draw_string()`, use:
 - **ScrollContainer** for scrollable content
 - **CanvasLayer** to separate UI from world coordinates
 
-### Signals for Decoupling (Phase 7)
-Instead of `_parent.xxx` references:
+### Signals for Decoupling (Phase 7 — DONE)
+GameState emits signals at state transitions; listeners connect in future phases:
 ```gdscript
-# GameState emits signals
-signal sim_changed()
-signal phase_changed(phase: int)
-# Nodes connect to react
+# GameState defines signals
+signal sim_changed()          # confirmed_sim or preview_sim updated
+signal phase_changed(phase)   # DEPLOY → DONE
+signal hover_changed(hex)     # cursor moved to new hex
+signal view_mode_changed(mode) # keys 1–4
+signal unit_placed(uid)       # unit confirmed in deploy
+signal replay_changed(turn)   # replay turn navigation
+# Future: nodes connect to react
 game_state.sim_changed.connect(_on_sim_changed)
 ```
 

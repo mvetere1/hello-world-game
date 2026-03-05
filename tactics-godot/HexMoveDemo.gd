@@ -252,76 +252,16 @@ func _build_trail_hex_cache(sim: Dictionary) -> Dictionary:
 	return cache
 
 func _find_trail_uid_at_hex(hex: Vector2i, sim: Dictionary) -> int:
-	if not is_same(sim, _trail_hex_cache_ref):
-		_trail_hex_cache = _build_trail_hex_cache(sim)
-		_trail_hex_cache_ref = sim
-	return _trail_hex_cache.get(hex_id(hex.x, hex.y), -1)
+	if not is_same(sim, _state._trail_hex_cache_ref):
+		_state._trail_hex_cache = _build_trail_hex_cache(sim)
+		_state._trail_hex_cache_ref = sim
+	return _state._trail_hex_cache.get(hex_id(hex.x, hex.y), -1)
 
 # ============================================================================
-# GAME STATE
+# GAME STATE  (centralized in scripts/game_state.gd)
 # ============================================================================
 
-enum Phase { DEPLOY, DONE }
-enum ViewMode { CLEAN, CHANGED, FULL, FINAL }
-
-var phase        = Phase.DEPLOY
-var view_mode    = ViewMode.CLEAN
-var active_player = 1           # whose turn to deploy (1 or 2)
-var deploy_unit_type := "infantry"
-var selecting_unit := true      # true = show unit selection popup
-var placed_p1    : Array        = []  # Array of {player,col,row,unit_type,start_turn?}
-var placed_p2    : Array        = []
-
-# Deep strike deployment state
-var ds_selecting_turn := false
-var ds_arrival_turn   := -1
-var ds_legal_hexes    := {}     # hex_id -> true for valid deep strike hexes
-var ds_pending_hex    := Vector2i(-1, -1)  # hex clicked before turn selection
-
-var confirmed_sim := {}
-var preview_sim   := {}
-var preview_diff  := {}   # diff between confirmed and preview sims
-var showing_shift_summary := false
-var shift_summary_lines: Array = []   # Array of lines; each line = Array of {t: String, c: Color}
-var shift_summary_scroll := 0
-var shift_summary_timer := 0.0
-var shift_summary_diff := {}  # snapshot of preview_diff at placement time
-var shift_old_sim := {}       # snapshot of confirmed_sim before placement
-var hover_hex     := Vector2i(-1, -1)
-var hover_trail_uid := -1  # UID of unit whose trail is under cursor (-1 = none)
-var _trail_hex_cache := {}  # hex_id -> uid, rebuilt when sim changes
-var _trail_hex_cache_ref: Dictionary  # reference to sim the cache was built for
-var _mouse_pos := Vector2.ZERO  # last known mouse position for tooltip placement
-var deploy_heatmap := {}  # hex_id -> vp delta for active player
-var _heatmap_queue: Array = []  # hex coords still to compute
-var _heatmap_base_vp := 0      # cached baseline VP for incremental compute
-var _heatmap_base_units: Array = []  # cached unit list for incremental compute
-var _heatmap_min := 0  # worst delta seen so far (for relative scaling)
-var _heatmap_max := 0  # best delta seen so far
-var _heatmap_enabled := false  # toggled by H key during deploy
-var _deploy_blocked_cache: Dictionary = {}  # zone + formation blocked hexes
-var _log_visible := false  # toggled by L key
-
-var anim_turn  := 0
-var anim_frac  := 0.0   # 0.0–1.0 progress within the current turn (for smooth interpolation)
-var _diff_flash_time := 0.0  # timer for CHANGED mode old/new crossfade (2s cycle)
-var _obj_control: Array = []  # per-objective: 0=neutral, 1=P1, 2=P2
-
-# Combat log
-var log_lines: Array = []
-var log_scroll: int  = 0
-
-# Replay mode
-var replay_mode  := false
-var replay_turn  := 0
-
-# Analytics UI toggle (Tab key)
-var show_analytics_ui := true
-
-# Battle summary
-var show_summary := false
-var summary_lines: Array = []  # Array of {text, color, bold}
-var summary_scroll: int = 0
+var _state: GameState
 
 # Camera drag
 var drag_active   := false
@@ -353,6 +293,13 @@ func _load_unit_sprites():
 
 var _terrain_map: TileMapLayer = null
 var _battle_renderer: BattleRenderer = null
+var _hud_layer: CanvasLayer = null
+var _top_bar: TopBar = null
+var _unit_select_popup: UnitSelectPopup = null
+var _ds_turn_popup: DSTurnPopup = null
+var _scoreboard: Scoreboard = null
+var _fate_chart: FateChart = null
+var _analytics_vbox: VBoxContainer = null
 var _terrain_sprites: Dictionary = {}  # terrain_key -> Texture2D
 var _cursor_hand: Texture2D = null
 var _cursor_nogo: Texture2D = null
@@ -385,12 +332,59 @@ func _ready():
 		HEX_SIZE * sqrt(3.0) * mid_row + (mid_col & 1) * HEX_SIZE * sqrt(3.0) * 0.5
 	)
 	cam_offset = vp * 0.5 - map_center * cam_zoom
+	# GameState — centralized mutable state
+	_state = GameState.new()
+	add_child(_state)
 	# Battle renderer — child Node2D for tile/trail/token drawing
 	_battle_renderer = BattleRenderer.new()
-	_battle_renderer.init(self)
+	_battle_renderer.init(self, _state)
 	_battle_renderer.z_index = -1  # draw battle layer under HUD
 	add_child(_battle_renderer)
 	_recalc_confirmed_sim()
+	# HUD layer — separate coordinate space from world
+	_hud_layer = CanvasLayer.new()
+	_hud_layer.layer = 10
+	_hud_layer.name = "HUD"
+	add_child(_hud_layer)
+	# TopBar panel
+	var top_bar_scene = preload("res://scenes/hud/top_bar.tscn")
+	_top_bar = top_bar_scene.instantiate()
+	_hud_layer.add_child(_top_bar)
+	_top_bar.init(_state)
+	_top_bar.replay_requested.connect(_on_replay_requested)
+	_top_bar.summary_requested.connect(_on_summary_requested)
+	# UnitSelectPopup
+	var unit_popup_scene = preload("res://scenes/hud/unit_select_popup.tscn")
+	_unit_select_popup = unit_popup_scene.instantiate()
+	_hud_layer.add_child(_unit_select_popup)
+	_unit_select_popup.init(_state)
+	_unit_select_popup.unit_selected.connect(_on_unit_selected)
+	# DSTurnPopup
+	var ds_popup_scene = preload("res://scenes/hud/ds_turn_popup.tscn")
+	_ds_turn_popup = ds_popup_scene.instantiate()
+	_hud_layer.add_child(_ds_turn_popup)
+	_ds_turn_popup.init(_state)
+	_ds_turn_popup.turn_selected.connect(_on_ds_turn_selected)
+	# Right-side analytics panel (VBox: scoreboard + fate chart)
+	_analytics_vbox = VBoxContainer.new()
+	_analytics_vbox.name = "AnalyticsPanel"
+	_analytics_vbox.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_analytics_vbox.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_analytics_vbox.offset_left = -435.0
+	_analytics_vbox.offset_top = 56.0
+	_analytics_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_analytics_vbox.add_theme_constant_override("separation", 6)
+	_hud_layer.add_child(_analytics_vbox)
+	# Scoreboard
+	_scoreboard = preload("res://scenes/hud/scoreboard.tscn").instantiate()
+	_analytics_vbox.add_child(_scoreboard)
+	_scoreboard.init(_state)
+	# Fate chart
+	_fate_chart = preload("res://scenes/hud/fate_chart.tscn").instantiate()
+	_analytics_vbox.add_child(_fate_chart)
+	_fate_chart.init(_state)
+	# Redraw battle when view mode changes (from TopBar button clicks)
+	_state.view_mode_changed.connect(func(_m): queue_redraw())
 	queue_redraw()
 
 # ============================================================================
@@ -399,18 +393,18 @@ func _ready():
 
 func _input(event: InputEvent):
 	# Battle summary controls
-	if show_summary:
+	if _state.show_summary:
 		if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-			show_summary = false
+			_state.show_summary = false
 			queue_redraw()
 			return
 		if event is InputEventMouseButton and event.pressed:
 			if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-				summary_scroll = maxi(0, summary_scroll - 3)
+				_state.summary_scroll = maxi(0, _state.summary_scroll - 3)
 				queue_redraw()
 				return
 			if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-				summary_scroll += 3
+				_state.summary_scroll += 3
 				queue_redraw()
 				return
 			if event.button_index == MOUSE_BUTTON_LEFT:
@@ -419,73 +413,79 @@ func _input(event: InputEvent):
 				var panel_x: float = (vp_s.x - panel_w) / 2.0
 				var close_rect = Rect2(panel_x + panel_w - 44, 45, 34, 26)
 				if close_rect.has_point(event.position):
-					show_summary = false
+					_state.show_summary = false
 					queue_redraw()
 					return
 		if event is InputEventMouseButton or event is InputEventMouseMotion:
 			return  # consume mouse events while summary is open
 
 	# Replay mode controls
-	if replay_mode and event is InputEventKey and event.pressed:
+	if _state.replay_mode and event is InputEventKey and event.pressed:
 		if event.keycode == KEY_RIGHT:
-			replay_turn = mini(replay_turn + 1, TURNS - 1)
+			_state.replay_turn = mini(_state.replay_turn + 1, TURNS - 1)
+			_state.replay_changed.emit(_state.replay_turn)
 			queue_redraw()
 			return
 		if event.keycode == KEY_LEFT:
-			replay_turn = maxi(replay_turn - 1, 0)
+			_state.replay_turn = maxi(_state.replay_turn - 1, 0)
+			_state.replay_changed.emit(_state.replay_turn)
 			queue_redraw()
 			return
 		if event.keycode == KEY_ESCAPE:
-			replay_mode = false
+			_state.replay_mode = false
 			queue_redraw()
 			return
-	if replay_mode:
+	if _state.replay_mode:
 		return  # block all other input during replay
 
 	# View mode switching during deployment (keys 1-4)
-	if phase == Phase.DEPLOY and event is InputEventKey and event.pressed:
+	if _state.phase == GameState.Phase.DEPLOY and event is InputEventKey and event.pressed:
 		if event.keycode == KEY_1:
-			view_mode = ViewMode.CLEAN
+			_state.view_mode = GameState.ViewMode.CLEAN
+			_state.view_mode_changed.emit(_state.view_mode)
 			queue_redraw()
 			return
 		if event.keycode == KEY_2:
-			view_mode = ViewMode.CHANGED
+			_state.view_mode = GameState.ViewMode.CHANGED
+			_state.view_mode_changed.emit(_state.view_mode)
 			queue_redraw()
 			return
 		if event.keycode == KEY_3:
-			view_mode = ViewMode.FULL
+			_state.view_mode = GameState.ViewMode.FULL
+			_state.view_mode_changed.emit(_state.view_mode)
 			queue_redraw()
 			return
 		if event.keycode == KEY_4:
-			view_mode = ViewMode.FINAL
+			_state.view_mode = GameState.ViewMode.FINAL
+			_state.view_mode_changed.emit(_state.view_mode)
 			queue_redraw()
 			return
 		if event.keycode == KEY_H:
-			_heatmap_enabled = not _heatmap_enabled
-			if _heatmap_enabled:
+			_state._heatmap_enabled = not _state._heatmap_enabled
+			if _state._heatmap_enabled:
 				_compute_deploy_heatmap()
 			else:
-				deploy_heatmap = {}
-				_heatmap_queue = []
+				_state.deploy_heatmap = {}
+				_state._heatmap_queue = []
 			queue_redraw()
 			return
 		if event.keycode == KEY_L:
-			_log_visible = not _log_visible
+			_state._log_visible = not _state._log_visible
 			queue_redraw()
 			return
 		if event.keycode == KEY_TAB:
-			show_analytics_ui = not show_analytics_ui
+			_state.show_analytics_ui = not _state.show_analytics_ui
 			queue_redraw()
 			return
 
 	# Log panel scroll (left side, 340px wide)
-	if _log_visible and event is InputEventMouseButton and event.pressed and event.position.x < 420:
+	if _state._log_visible and event is InputEventMouseButton and event.pressed and event.position.x < 420:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			log_scroll = maxi(0, log_scroll - 3)
+			_state.log_scroll = maxi(0, _state.log_scroll - 3)
 			queue_redraw()
 			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			log_scroll = mini(maxi(0, log_lines.size() - 10), log_scroll + 3)
+			_state.log_scroll = mini(maxi(0, _state.log_lines.size() - 10), _state.log_scroll + 3)
 			queue_redraw()
 			return
 
@@ -508,93 +508,62 @@ func _input(event: InputEvent):
 			else:
 				drag_active = false
 	if event is InputEventMouseMotion:
-		_mouse_pos = event.position
+		_state._mouse_pos = event.position
 		if drag_active:
 			cam_offset = cam_start + (event.position - drag_start)
-			queue_redraw()
-			return
-		if selecting_unit or ds_selecting_turn:
-			if _cursor_hand:
-				Input.set_custom_mouse_cursor(_cursor_hand, Input.CURSOR_ARROW, Vector2(16, 0))
 			queue_redraw()
 			return
 		# Update hover
 		var h = pixel_to_hex(event.position)
 		var new_hover = h if is_valid_hex(h.x, h.y) else Vector2i(-1, -1)
-		if new_hover != hover_hex:
-			hover_hex = new_hover
+		if new_hover != _state.hover_hex:
+			_state.hover_hex = new_hover
+			_state.hover_changed.emit(_state.hover_hex)
 			# Trail hover detection: find unit whose trail is under cursor
-			hover_trail_uid = -1
-			if new_hover != Vector2i(-1, -1) and not selecting_unit and not ds_selecting_turn and not showing_shift_summary and not show_summary:
-				var active_sim = preview_sim if not preview_sim.is_empty() else confirmed_sim
+			_state.hover_trail_uid = -1
+			if new_hover != Vector2i(-1, -1) and not _state.selecting_unit and not _state.ds_selecting_turn and not _state.showing_shift_summary and not _state.show_summary:
+				var active_sim = _state.preview_sim if not _state.preview_sim.is_empty() else _state.confirmed_sim
 				if not active_sim.is_empty():
-					hover_trail_uid = _find_trail_uid_at_hex(new_hover, active_sim)
-			if not selecting_unit and not ds_selecting_turn and not showing_shift_summary and _is_deploy_hex(new_hover):
+					_state.hover_trail_uid = _find_trail_uid_at_hex(new_hover, active_sim)
+			if not _state.selecting_unit and not _state.ds_selecting_turn and not _state.showing_shift_summary and _is_deploy_hex(new_hover):
 				_recalc_preview_sim()
-				anim_turn  = 0
-				anim_frac  = 0.0
+				_state.anim_turn  = 0
+				_state.anim_frac  = 0.0
 				if _cursor_hand:
 					Input.set_custom_mouse_cursor(_cursor_hand, Input.CURSOR_ARROW, Vector2(16, 0))
 			else:
-				if not preview_sim.is_empty():
-					preview_sim = {}
-					preview_diff = {}
-				if _cursor_nogo and phase == Phase.DEPLOY and is_valid_hex(new_hover.x, new_hover.y) and not selecting_unit and not ds_selecting_turn:
+				if not _state.preview_sim.is_empty():
+					_state.preview_sim = {}
+					_state.preview_diff = {}
+				if _cursor_nogo and _state.phase == GameState.Phase.DEPLOY and is_valid_hex(new_hover.x, new_hover.y) and not _state.selecting_unit and not _state.ds_selecting_turn:
 					Input.set_custom_mouse_cursor(_cursor_nogo, Input.CURSOR_ARROW, Vector2(32, 32))
 				elif _cursor_hand:
 					Input.set_custom_mouse_cursor(_cursor_hand, Input.CURSOR_ARROW, Vector2(16, 0))
 			queue_redraw()
 
 	# Shift summary scroll
-	if showing_shift_summary and event is InputEventMouseButton and event.pressed:
+	if _state.showing_shift_summary and event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			shift_summary_scroll = maxi(0, shift_summary_scroll - 1)
+			_state.shift_summary_scroll = maxi(0, _state.shift_summary_scroll - 1)
 			queue_redraw()
 			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			shift_summary_scroll += 1
+			_state.shift_summary_scroll += 1
 			queue_redraw()
 			return
 
 	# Left click handling
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		# Dismiss shift summary on click
-		if showing_shift_summary:
-			showing_shift_summary = false
-			shift_summary_diff = {}
-			selecting_unit = true
+		if _state.showing_shift_summary:
+			_state.showing_shift_summary = false
+			_state.shift_summary_diff = {}
+			_state.selecting_unit = true
 			if _cursor_hand:
 				Input.set_custom_mouse_cursor(_cursor_hand, Input.CURSOR_ARROW, Vector2(16, 0))
 			queue_redraw()
 			return
 		if not drag_active:
-			# Check REPLAY / SUMMARY button click
-			if phase == Phase.DONE and not replay_mode:
-				var vp2 = get_viewport_rect().size
-				var btn_replay = Rect2(vp2.x / 2.0 - 135, 55, 120, 36)
-				if btn_replay.has_point(event.position):
-					replay_mode = true
-					replay_turn = 0
-					queue_redraw()
-					return
-				var btn_summary = Rect2(vp2.x / 2.0 + 15, 55, 120, 36)
-				if btn_summary.has_point(event.position):
-					summary_lines = _generate_battle_summary()
-					summary_scroll = 0
-					show_summary = true
-					queue_redraw()
-					return
-
-			# Unit selection popup click
-			if phase == Phase.DEPLOY and selecting_unit:
-				_handle_unit_select_click(event.position)
-				return
-
-			# Deep strike turn selector click
-			if phase == Phase.DEPLOY and ds_selecting_turn:
-				_handle_ds_turn_click(event.position)
-				return
-
 			# Normal hex placement click
 			var h = pixel_to_hex(event.position)
 			_handle_deploy_click(h)
@@ -607,13 +576,13 @@ func _zoom(factor: float, pivot: Vector2):
 	queue_redraw()
 
 func _is_deploy_hex(h: Vector2i) -> bool:
-	if phase != Phase.DEPLOY or not is_valid_hex(h.x, h.y):
+	if _state.phase != GameState.Phase.DEPLOY or not is_valid_hex(h.x, h.y):
 		return false
 	# Basic zone check first
 	var in_zone := false
-	if deploy_unit_type == "deep_strike" and ds_arrival_turn > 0:
-		in_zone = ds_legal_hexes.has(hex_id(h.x, h.y))
-	elif active_player == 1:
+	if _state.deploy_unit_type == "deep_strike" and _state.ds_arrival_turn > 0:
+		in_zone = _state.ds_legal_hexes.has(hex_id(h.x, h.y))
+	elif _state.active_player == 1:
 		in_zone = h.y >= P1_DEPLOY_ROWS_MIN and h.y <= P1_DEPLOY_ROWS_MAX and h.x >= DEPLOY_C_MIN and h.x <= DEPLOY_C_MAX
 	else:
 		in_zone = h.y >= P2_DEPLOY_ROWS_MIN and h.y <= P2_DEPLOY_ROWS_MAX and h.x >= DEPLOY_C_MIN and h.x <= DEPLOY_C_MAX
@@ -623,123 +592,81 @@ func _is_deploy_hex(h: Vector2i) -> bool:
 	if not _is_hex_passable(h.x, h.y):
 		return false
 	# Check anchor not blocked by existing formations
-	if _deploy_blocked_cache.has(hex_id(h.x, h.y)):
+	if _state._deploy_blocked_cache.has(hex_id(h.x, h.y)):
 		return false
 	# Check that the full formation cluster fits
-	var stats = _get_stats(deploy_unit_type)
-	var fp = _compute_footprint(deploy_unit_type, stats.models)
-	var cluster = compute_compact_cluster(h, fp, _deploy_blocked_cache)
+	var stats = _get_stats(_state.deploy_unit_type)
+	var fp = _compute_footprint(_state.deploy_unit_type, stats.models)
+	var cluster = compute_compact_cluster(h, fp, _state._deploy_blocked_cache)
 	return cluster.size() == fp
 
 func _handle_deploy_click(h: Vector2i):
-	if phase != Phase.DEPLOY or selecting_unit or ds_selecting_turn: return
+	if _state.phase != GameState.Phase.DEPLOY or _state.selecting_unit or _state.ds_selecting_turn: return
 	if not _is_deploy_hex(h): return
 
 	# Compute the deploy formation (zone + stacking validated by _is_deploy_hex)
-	var stats = _get_stats(deploy_unit_type)
-	var fp = _compute_footprint(deploy_unit_type, stats.models)
-	var formation = compute_compact_cluster(h, fp, _deploy_blocked_cache)
+	var stats = _get_stats(_state.deploy_unit_type)
+	var fp = _compute_footprint(_state.deploy_unit_type, stats.models)
+	var formation = compute_compact_cluster(h, fp, _state._deploy_blocked_cache)
 	if formation.size() < fp: return  # safety: can't fit
 
-	var unit_data = { "player": active_player, "col": h.x, "row": h.y, "unit_type": deploy_unit_type, "formation": formation }
-	if deploy_unit_type == "deep_strike":
-		unit_data["start_turn"] = ds_arrival_turn
+	var unit_data = { "player": _state.active_player, "col": h.x, "row": h.y, "unit_type": _state.deploy_unit_type, "formation": formation }
+	if _state.deploy_unit_type == "deep_strike":
+		unit_data["start_turn"] = _state.ds_arrival_turn
 
-	if active_player == 1:
-		placed_p1.append(unit_data)
+	if _state.active_player == 1:
+		_state.placed_p1.append(unit_data)
 	else:
-		placed_p2.append(unit_data)
+		_state.placed_p2.append(unit_data)
 
 	# Snapshot the diff and old sim before recalculating
-	shift_summary_diff = preview_diff.duplicate(true) if not preview_diff.is_empty() else {}
-	shift_old_sim = confirmed_sim.duplicate(true) if not confirmed_sim.is_empty() else {}
+	_state.shift_summary_diff = _state.preview_diff.duplicate(true) if not _state.preview_diff.is_empty() else {}
+	_state.shift_old_sim = _state.confirmed_sim.duplicate(true) if not _state.confirmed_sim.is_empty() else {}
 	var placed_unit_name = ""
-	var placed_player = active_player
-	var placed_type = deploy_unit_type
+	var placed_player = _state.active_player
+	var placed_type = _state.deploy_unit_type
 
 	# Reset deployment state for next turn
-	active_player = 2 if active_player == 1 else 1
-	ds_selecting_turn = false
-	ds_arrival_turn = -1
-	ds_legal_hexes = {}
-	ds_pending_hex = Vector2i(-1, -1)
-	hover_hex = Vector2i(-1, -1)
-	deploy_heatmap = {}
-	_heatmap_queue = []
+	_state.active_player = 2 if _state.active_player == 1 else 1
+	_state.ds_selecting_turn = false
+	_state.ds_arrival_turn = -1
+	_state.ds_legal_hexes = {}
+	_state.ds_pending_hex = Vector2i(-1, -1)
+	_state.hover_hex = Vector2i(-1, -1)
+	_state.deploy_heatmap = {}
+	_state._heatmap_queue = []
 	_recalc_confirmed_sim()
-	preview_sim = {}
-	preview_diff = {}
-	anim_turn  = 0
-	anim_frac  = 0.0
+	_state.preview_sim = {}
+	_state.preview_diff = {}
+	_state.anim_turn  = 0
+	_state.anim_frac  = 0.0
 
 	# Get the placed unit's UID and name from the new sim
-	var placed_uid = placed_p1.size() - 1 if placed_player == 1 else placed_p1.size() + placed_p2.size() - 1
-	var new_names: Array = confirmed_sim.get("unit_names", [])
+	var placed_uid = _state.placed_p1.size() - 1 if placed_player == 1 else _state.placed_p1.size() + _state.placed_p2.size() - 1
+	var new_names: Array = _state.confirmed_sim.get("unit_names", [])
 	if placed_uid >= 0 and placed_uid < new_names.size():
 		placed_unit_name = new_names[placed_uid]
+	_state.unit_placed.emit(placed_uid)
 
-	var total_placed = placed_p1.size() + placed_p2.size()
+	var total_placed = _state.placed_p1.size() + _state.placed_p2.size()
 	if total_placed >= UNITS_PER_SIDE * 2:
-		phase = Phase.DONE
-		selecting_unit = false
+		_state.phase = GameState.Phase.DONE
+		_state.phase_changed.emit(_state.phase)
+		_state.selecting_unit = false
 	else:
 		# Show shift summary before next unit selection
-		selecting_unit = false
-		shift_summary_lines = _build_shift_summary_lines(shift_summary_diff, shift_old_sim, confirmed_sim, placed_unit_name, placed_type, placed_player, placed_uid)
-		shift_summary_scroll = 0
-		showing_shift_summary = true
-		shift_summary_timer = 0.0
+		_state.selecting_unit = false
+		_state.shift_summary_lines = _build_shift_summary_lines(_state.shift_summary_diff, _state.shift_old_sim, _state.confirmed_sim, placed_unit_name, placed_type, placed_player, placed_uid)
+		_state.shift_summary_scroll = 0
+		_state.showing_shift_summary = true
+		_state.shift_summary_timer = 0.0
 	queue_redraw()
 
-func _handle_unit_select_click(pos: Vector2):
-	var vp = get_viewport_rect().size
-	var btn_w = 145.0
-	var btn_h = 48.0
-	var gap = 10.0
-	var total_w = UNIT_TYPES.size() * btn_w + (UNIT_TYPES.size() - 1) * gap
-	var start_x = (vp.x - total_w) / 2.0
-	var start_y = vp.y / 2.0 - btn_h / 2.0
-	for i in UNIT_TYPES.size():
-		var bx = start_x + i * (btn_w + gap)
-		var rect = Rect2(bx, start_y, btn_w, btn_h)
-		if rect.has_point(pos):
-			deploy_unit_type = UNIT_TYPES[i]
-			selecting_unit = false
-			if deploy_unit_type == "deep_strike":
-				ds_selecting_turn = true
-			else:
-				_recompute_deploy_cache()
-				if _heatmap_enabled:
-					_compute_deploy_heatmap()
-			queue_redraw()
-			return
-
-func _handle_ds_turn_click(pos: Vector2):
-	var vp = get_viewport_rect().size
-	var btn_w = 60.0
-	var btn_h = 42.0
-	var gap = 10.0
-	var turns_available = 7  # T2 through T8
-	var total_w = turns_available * btn_w + (turns_available - 1) * gap
-	var start_x = (vp.x - total_w) / 2.0
-	var start_y = vp.y / 2.0 - btn_h / 2.0
-	for i in turns_available:
-		var bx = start_x + i * (btn_w + gap)
-		var rect = Rect2(bx, start_y, btn_w, btn_h)
-		if rect.has_point(pos):
-			ds_arrival_turn = i + 1  # T2 button (i=0) → 0-based turn 1 = display Turn 2
-			ds_selecting_turn = false
-			ds_legal_hexes = _compute_ds_legal_hexes(ds_arrival_turn)
-			_recompute_deploy_cache()
-			if _heatmap_enabled:
-				_compute_deploy_heatmap()
-			queue_redraw()
-			return
 
 func _compute_ds_legal_hexes(arrival_turn: int) -> Dictionary:
 	var legal := {}
-	var snapshots: Array = confirmed_sim.get("unit_snapshots", [])
-	var conf_units: Array = confirmed_sim.get("units", [])
+	var snapshots: Array = _state.confirmed_sim.get("unit_snapshots", [])
+	var conf_units: Array = _state.confirmed_sim.get("units", [])
 	# If no sim yet (first unit), all hexes are legal
 	if snapshots.is_empty():
 		for c in COLS:
@@ -759,7 +686,7 @@ func _compute_ds_legal_hexes(arrival_turn: int) -> Dictionary:
 				if su.eliminated: continue
 				# Only check enemy units
 				var u_player = conf_units[uid].player if uid < conf_units.size() else 0
-				if u_player == active_player: continue
+				if u_player == _state.active_player: continue
 				# Check distance from candidate hex to enemy formation
 				var su_form: Array = su.get("formation", [Vector2i(su.col, su.row)])
 				if formation_dist_to_hex(su_form, Vector2i(c, r)) < CAVALRY_AGGRO + 1:
@@ -778,46 +705,49 @@ func _compute_obj_control(sim: Dictionary) -> Array:
 	return sim.get("obj_control", [0, 0, 0])
 
 func _recalc_confirmed_sim():
-	var all_units: Array = placed_p1.duplicate() + placed_p2.duplicate()
+	var all_units: Array = _state.placed_p1.duplicate() + _state.placed_p2.duplicate()
 	if all_units.is_empty():
-		confirmed_sim = {}
-		log_lines = []
+		_state.confirmed_sim = {}
+		_state.log_lines = []
+		_state.sim_changed.emit()
 		return
-	confirmed_sim = simulate(all_units)
-	log_lines = confirmed_sim.get("combat_log", [])
-	log_scroll = 0
+	_state.confirmed_sim = simulate(all_units)
+	_state.log_lines = _state.confirmed_sim.get("combat_log", [])
+	_state.log_scroll = 0
 	# Write to file
 	var f = FileAccess.open("user://combat_log.txt", FileAccess.WRITE)
 	if f:
-		for line in log_lines:
+		for line in _state.log_lines:
 			f.store_line(line)
 		f.close()
+	_state.sim_changed.emit()
 
 func _recalc_preview_sim():
-	if phase != Phase.DEPLOY or selecting_unit or ds_selecting_turn or showing_shift_summary: return
-	if not _is_deploy_hex(hover_hex):
-		preview_sim = {}
-		preview_diff = {}
+	if _state.phase != GameState.Phase.DEPLOY or _state.selecting_unit or _state.ds_selecting_turn or _state.showing_shift_summary: return
+	if not _is_deploy_hex(_state.hover_hex):
+		_state.preview_sim = {}
+		_state.preview_diff = {}
 		return
 	# Compute preview formation using blocked cache (zone + stacking)
-	var stats = _get_stats(deploy_unit_type)
-	var fp = _compute_footprint(deploy_unit_type, stats.models)
-	var formation = compute_compact_cluster(hover_hex, fp, _deploy_blocked_cache)
+	var stats = _get_stats(_state.deploy_unit_type)
+	var fp = _compute_footprint(_state.deploy_unit_type, stats.models)
+	var formation = compute_compact_cluster(_state.hover_hex, fp, _state._deploy_blocked_cache)
 	if formation.size() < fp:
-		preview_sim = {}
-		preview_diff = {}
+		_state.preview_sim = {}
+		_state.preview_diff = {}
 		return
-	var preview_unit = { "player": active_player, "col": hover_hex.x, "row": hover_hex.y, "unit_type": deploy_unit_type, "formation": formation }
-	if deploy_unit_type == "deep_strike" and ds_arrival_turn > 0:
-		preview_unit["start_turn"] = ds_arrival_turn
-	var all_units: Array = placed_p1.duplicate() + placed_p2.duplicate()
+	var preview_unit = { "player": _state.active_player, "col": _state.hover_hex.x, "row": _state.hover_hex.y, "unit_type": _state.deploy_unit_type, "formation": formation }
+	if _state.deploy_unit_type == "deep_strike" and _state.ds_arrival_turn > 0:
+		preview_unit["start_turn"] = _state.ds_arrival_turn
+	var all_units: Array = _state.placed_p1.duplicate() + _state.placed_p2.duplicate()
 	all_units.append(preview_unit)
-	preview_sim = simulate(all_units)
-	preview_diff = _compute_sim_diff()
+	_state.preview_sim = simulate(all_units)
+	_state.preview_diff = _compute_sim_diff()
+	_state.sim_changed.emit()
 
 func _recompute_deploy_cache():
-	_deploy_blocked_cache = {}
-	var all_placed = placed_p1 + placed_p2
+	_state._deploy_blocked_cache = {}
+	var all_placed = _state.placed_p1 + _state.placed_p2
 	# Add all stored formation hexes from placed units
 	for p in all_placed:
 		var form: Array = p.get("formation", [])
@@ -832,89 +762,89 @@ func _recompute_deploy_cache():
 					b[hex_id(fh.x, fh.y)] = true
 			form = compute_compact_cluster(Vector2i(p.col, p.row), fp, b)
 		for fh in form:
-			_deploy_blocked_cache[hex_id(fh.x, fh.y)] = true
+			_state._deploy_blocked_cache[hex_id(fh.x, fh.y)] = true
 	# Block non-deploy-zone hexes for current player (regular units)
-	if deploy_unit_type != "deep_strike" or ds_arrival_turn <= 0:
-		var r_min = P1_DEPLOY_ROWS_MIN if active_player == 1 else P2_DEPLOY_ROWS_MIN
-		var r_max = P1_DEPLOY_ROWS_MAX if active_player == 1 else P2_DEPLOY_ROWS_MAX
+	if _state.deploy_unit_type != "deep_strike" or _state.ds_arrival_turn <= 0:
+		var r_min = P1_DEPLOY_ROWS_MIN if _state.active_player == 1 else P2_DEPLOY_ROWS_MIN
+		var r_max = P1_DEPLOY_ROWS_MAX if _state.active_player == 1 else P2_DEPLOY_ROWS_MAX
 		for c in COLS:
 			for r in ROWS:
 				if is_valid_hex(c, r) and (r < r_min or r > r_max or c < DEPLOY_C_MIN or c > DEPLOY_C_MAX):
-					_deploy_blocked_cache[hex_id(c, r)] = true
+					_state._deploy_blocked_cache[hex_id(c, r)] = true
 	else:
-		# Deep strike: block hexes not in ds_legal_hexes
+		# Deep strike: block hexes not in _state.ds_legal_hexes
 		for c in COLS:
 			for r in ROWS:
-				if is_valid_hex(c, r) and not ds_legal_hexes.has(hex_id(c, r)):
-					_deploy_blocked_cache[hex_id(c, r)] = true
+				if is_valid_hex(c, r) and not _state.ds_legal_hexes.has(hex_id(c, r)):
+					_state._deploy_blocked_cache[hex_id(c, r)] = true
 
 func _compute_deploy_heatmap():
-	deploy_heatmap = {}
-	_heatmap_queue = []
-	_heatmap_min = 0
-	_heatmap_max = 0
-	if phase != Phase.DEPLOY or selecting_unit or ds_selecting_turn or not _heatmap_enabled:
+	_state.deploy_heatmap = {}
+	_state._heatmap_queue = []
+	_state._heatmap_min = 0
+	_state._heatmap_max = 0
+	if _state.phase != GameState.Phase.DEPLOY or _state.selecting_unit or _state.ds_selecting_turn or not _state._heatmap_enabled:
 		return
 	# Cache baseline VP
-	_heatmap_base_vp = 0
-	var conf_vpt: Array = confirmed_sim.get("vp_per_turn", [])
+	_state._heatmap_base_vp = 0
+	var conf_vpt: Array = _state.confirmed_sim.get("vp_per_turn", [])
 	if not conf_vpt.is_empty():
 		var final_vp = conf_vpt[conf_vpt.size() - 1]
-		_heatmap_base_vp = final_vp[0] if active_player == 1 else final_vp[1]
-	_heatmap_base_units = placed_p1.duplicate() + placed_p2.duplicate()
+		_state._heatmap_base_vp = final_vp[0] if _state.active_player == 1 else final_vp[1]
+	_state._heatmap_base_units = _state.placed_p1.duplicate() + _state.placed_p2.duplicate()
 	# Build queue of hex coordinates to process (filtered by formation validity)
-	var stats = _get_stats(deploy_unit_type)
-	var fp = _compute_footprint(deploy_unit_type, stats.models)
-	if deploy_unit_type == "deep_strike" and ds_arrival_turn > 0:
-		for hid in ds_legal_hexes:
-			if _deploy_blocked_cache.has(hid): continue
+	var stats = _get_stats(_state.deploy_unit_type)
+	var fp = _compute_footprint(_state.deploy_unit_type, stats.models)
+	if _state.deploy_unit_type == "deep_strike" and _state.ds_arrival_turn > 0:
+		for hid in _state.ds_legal_hexes:
+			if _state._deploy_blocked_cache.has(hid): continue
 			var coord = Vector2i(hid / 1000, hid % 1000)
-			var cluster = compute_compact_cluster(coord, fp, _deploy_blocked_cache)
+			var cluster = compute_compact_cluster(coord, fp, _state._deploy_blocked_cache)
 			if cluster.size() == fp:
-				_heatmap_queue.append(coord)
+				_state._heatmap_queue.append(coord)
 	else:
-		var r_min = P1_DEPLOY_ROWS_MIN if active_player == 1 else P2_DEPLOY_ROWS_MIN
-		var r_max = P1_DEPLOY_ROWS_MAX if active_player == 1 else P2_DEPLOY_ROWS_MAX
+		var r_min = P1_DEPLOY_ROWS_MIN if _state.active_player == 1 else P2_DEPLOY_ROWS_MIN
+		var r_max = P1_DEPLOY_ROWS_MAX if _state.active_player == 1 else P2_DEPLOY_ROWS_MAX
 		for r in range(r_min, r_max + 1):
 			for c in range(DEPLOY_C_MIN, DEPLOY_C_MAX + 1):
 				var hid = hex_id(c, r)
-				if _deploy_blocked_cache.has(hid): continue
-				var cluster = compute_compact_cluster(Vector2i(c, r), fp, _deploy_blocked_cache)
+				if _state._deploy_blocked_cache.has(hid): continue
+				var cluster = compute_compact_cluster(Vector2i(c, r), fp, _state._deploy_blocked_cache)
 				if cluster.size() == fp:
-					_heatmap_queue.append(Vector2i(c, r))
+					_state._heatmap_queue.append(Vector2i(c, r))
 
 func _process_heatmap_batch(count: int):
 	for _i in count:
-		if _heatmap_queue.is_empty():
+		if _state._heatmap_queue.is_empty():
 			return
-		var coord: Vector2i = _heatmap_queue.pop_back()
+		var coord: Vector2i = _state._heatmap_queue.pop_back()
 		var c = coord.x
 		var r = coord.y
-		var test_unit = { "player": active_player, "col": c, "row": r, "unit_type": deploy_unit_type }
-		if deploy_unit_type == "deep_strike" and ds_arrival_turn > 0:
-			test_unit["start_turn"] = ds_arrival_turn
-		var test_units = _heatmap_base_units.duplicate()
+		var test_unit = { "player": _state.active_player, "col": c, "row": r, "unit_type": _state.deploy_unit_type }
+		if _state.deploy_unit_type == "deep_strike" and _state.ds_arrival_turn > 0:
+			test_unit["start_turn"] = _state.ds_arrival_turn
+		var test_units = _state._heatmap_base_units.duplicate()
 		test_units.append(test_unit)
 		var result = simulate(test_units)
 		var result_vpt: Array = result.get("vp_per_turn", [])
 		var test_vp := 0
 		if not result_vpt.is_empty():
 			var fvp = result_vpt[result_vpt.size() - 1]
-			test_vp = fvp[0] if active_player == 1 else fvp[1]
-		var delta = test_vp - _heatmap_base_vp
-		deploy_heatmap[hex_id(c, r)] = delta
-		if delta < _heatmap_min: _heatmap_min = delta
-		if delta > _heatmap_max: _heatmap_max = delta
+			test_vp = fvp[0] if _state.active_player == 1 else fvp[1]
+		var delta = test_vp - _state._heatmap_base_vp
+		_state.deploy_heatmap[hex_id(c, r)] = delta
+		if delta < _state._heatmap_min: _state._heatmap_min = delta
+		if delta > _state._heatmap_max: _state._heatmap_max = delta
 
 func _compute_sim_diff() -> Dictionary:
-	if confirmed_sim.is_empty() or preview_sim.is_empty():
+	if _state.confirmed_sim.is_empty() or _state.preview_sim.is_empty():
 		return {}
-	var conf_units: Array = confirmed_sim.get("units", [])
-	var prev_units: Array = preview_sim.get("units", [])
-	var conf_vp: Array = confirmed_sim.get("vp_per_turn", [])
-	var prev_vp: Array = preview_sim.get("vp_per_turn", [])
-	var conf_obj: Array = confirmed_sim.get("obj_control", [])
-	var prev_obj: Array = preview_sim.get("obj_control", [])
+	var conf_units: Array = _state.confirmed_sim.get("units", [])
+	var prev_units: Array = _state.preview_sim.get("units", [])
+	var conf_vp: Array = _state.confirmed_sim.get("vp_per_turn", [])
+	var prev_vp: Array = _state.preview_sim.get("vp_per_turn", [])
+	var conf_obj: Array = _state.confirmed_sim.get("obj_control", [])
+	var prev_obj: Array = _state.preview_sim.get("obj_control", [])
 
 	# Unit fate changes (only compare units that exist in both sims)
 	var shared_count = mini(conf_units.size(), prev_units.size())
@@ -951,8 +881,8 @@ func _compute_sim_diff() -> Dictionary:
 		obj_flips.append(co != po)
 
 	# Timeline changes — which units moved differently?
-	var conf_tl: Array = confirmed_sim.get("timelines", [])
-	var prev_tl: Array = preview_sim.get("timelines", [])
+	var conf_tl: Array = _state.confirmed_sim.get("timelines", [])
+	var prev_tl: Array = _state.preview_sim.get("timelines", [])
 	var changed_uids: Dictionary = {}
 	for i in mini(conf_tl.size(), prev_tl.size()):
 		var ct: Array = conf_tl[i]
@@ -1011,6 +941,38 @@ func _unit_dmg_summary(sim: Dictionary, uid: int) -> Array:
 
 func _team_color(player: int) -> Color:
 	return C_P1 if player == 1 else C_P2
+
+func _on_replay_requested() -> void:
+	_state.replay_mode = true
+	_state.replay_turn = 0
+	_state.replay_changed.emit(_state.replay_turn)
+	queue_redraw()
+
+func _on_summary_requested() -> void:
+	_state.summary_lines = _generate_battle_summary()
+	_state.summary_scroll = 0
+	_state.show_summary = true
+	queue_redraw()
+
+func _on_unit_selected(unit_type: String) -> void:
+	_state.deploy_unit_type = unit_type
+	_state.selecting_unit = false
+	if unit_type == "deep_strike":
+		_state.ds_selecting_turn = true
+	else:
+		_recompute_deploy_cache()
+		if _state._heatmap_enabled:
+			_compute_deploy_heatmap()
+	queue_redraw()
+
+func _on_ds_turn_selected(turn: int) -> void:
+	_state.ds_arrival_turn = turn
+	_state.ds_selecting_turn = false
+	_state.ds_legal_hexes = _compute_ds_legal_hexes(turn)
+	_recompute_deploy_cache()
+	if _state._heatmap_enabled:
+		_compute_deploy_heatmap()
+	queue_redraw()
 
 func _build_shift_summary_lines(diff: Dictionary, old_sim: Dictionary, new_sim: Dictionary, placed_name: String, placed_type: String, placed_player: int, placed_uid: int = -1) -> Array:
 	# Returns Array of lines. Each line = Array of {t: String, c: Color} segments.
@@ -1199,7 +1161,7 @@ func _build_shift_summary_lines(diff: Dictionary, old_sim: Dictionary, new_sim: 
 	return lines
 
 func _generate_battle_summary() -> Array:
-	var sim = confirmed_sim
+	var sim = _state.confirmed_sim
 	if sim.is_empty(): return []
 	var units: Array = sim.get("units", [])
 	var names: Array = sim.get("unit_names", [])
@@ -1347,44 +1309,44 @@ func _generate_battle_summary() -> Array:
 # ============================================================================
 
 func _process(delta: float):
-	if replay_mode:
+	if _state.replay_mode:
 		return  # freeze animation during replay
 	# Process heatmap queue incrementally (2 sims per frame to stay responsive)
-	if not _heatmap_queue.is_empty():
+	if not _state._heatmap_queue.is_empty():
 		_process_heatmap_batch(2)
 	var speed = TURN_DURATION
-	if phase == Phase.DEPLOY and view_mode == ViewMode.FULL:
+	if _state.phase == GameState.Phase.DEPLOY and _state.view_mode == GameState.ViewMode.FULL:
 		speed = _visual.full_mode_speed
-	anim_frac += delta / speed
-	if anim_frac >= 1.0:
-		anim_frac -= 1.0
-		anim_turn = (anim_turn + 1) % (TURNS + 1)
-	_diff_flash_time += delta
-	if showing_shift_summary:
-		shift_summary_timer += delta
+	_state.anim_frac += delta / speed
+	if _state.anim_frac >= 1.0:
+		_state.anim_frac -= 1.0
+		_state.anim_turn = (_state.anim_turn + 1) % (TURNS + 1)
+	_state._diff_flash_time += delta
+	if _state.showing_shift_summary:
+		_state.shift_summary_timer += delta
 	# Sync terrain tilemap with custom camera
 	if _terrain_map:
 		_terrain_map.position = cam_offset
 		_terrain_map.scale = Vector2(cam_zoom, cam_zoom)
 
 	# Update objective control state (moved from _draw for purity)
-	if replay_mode:
-		var sim = confirmed_sim
+	if _state.replay_mode:
+		var sim = _state.confirmed_sim
 		if not sim.is_empty():
 			var obj_hist: Array = sim.get("obj_ctrl_history", [])
-			if replay_turn < obj_hist.size():
-				_obj_control = obj_hist[replay_turn]
+			if _state.replay_turn < obj_hist.size():
+				_state._obj_control = obj_hist[_state.replay_turn]
 			else:
-				_obj_control = sim.get("obj_control", [0, 0, 0])
-	elif phase == Phase.DEPLOY and view_mode == ViewMode.FINAL:
-		var use_preview = (not preview_sim.is_empty())
-		var draw_sim = preview_sim if use_preview else confirmed_sim
+				_state._obj_control = sim.get("obj_control", [0, 0, 0])
+	elif _state.phase == GameState.Phase.DEPLOY and _state.view_mode == GameState.ViewMode.FINAL:
+		var use_preview = (not _state.preview_sim.is_empty())
+		var draw_sim = _state.preview_sim if use_preview else _state.confirmed_sim
 		if not draw_sim.is_empty():
-			_obj_control = draw_sim.get("obj_control", [0, 0, 0])
+			_state._obj_control = draw_sim.get("obj_control", [0, 0, 0])
 	else:
-		var use_preview = (not preview_sim.is_empty()) and (phase == Phase.DEPLOY)
-		var draw_sim = preview_sim if use_preview else confirmed_sim
-		_obj_control = _compute_obj_control(draw_sim)
+		var use_preview = (not _state.preview_sim.is_empty()) and (_state.phase == GameState.Phase.DEPLOY)
+		var draw_sim = _state.preview_sim if use_preview else _state.confirmed_sim
+		_state._obj_control = _compute_obj_control(draw_sim)
 
 	queue_redraw()   # every frame for smooth interpolation
 	if _battle_renderer:
@@ -1398,26 +1360,24 @@ func _draw():
 	# Battle drawing is handled by BattleRenderer (child Node2D at z_index=-1).
 	# This function draws HUD overlays on top.
 
-	if replay_mode:
+	if _state.replay_mode:
 		return  # BattleRenderer handles replay drawing including replay HUD
 
-	var use_preview = (not preview_sim.is_empty()) and (phase == Phase.DEPLOY)
-	var draw_sim    = preview_sim if use_preview else confirmed_sim
+	var use_preview = (not _state.preview_sim.is_empty()) and (_state.phase == GameState.Phase.DEPLOY)
+	var draw_sim    = _state.preview_sim if use_preview else _state.confirmed_sim
 	var vp = get_viewport_rect().size
 
 	# FINAL mode: BattleRenderer draws battle, we draw HUD on top
-	if phase == Phase.DEPLOY and view_mode == ViewMode.FINAL:
+	if _state.phase == GameState.Phase.DEPLOY and _state.view_mode == GameState.ViewMode.FINAL:
 		_draw_hud()
-		if show_analytics_ui:
-			_draw_scoreboard(draw_sim)
-			_draw_unit_fate(draw_sim)
-			if _log_visible: _draw_combat_log()
+		if _state.show_analytics_ui:
+			if _state._log_visible: _draw_combat_log()
 			if use_preview:
 				_draw_preview_narrative(draw_sim)
-			if hover_trail_uid >= 0 and not selecting_unit and not ds_selecting_turn:
+			if _state.hover_trail_uid >= 0 and not _state.selecting_unit and not _state.ds_selecting_turn:
 				_draw_trail_tooltip(draw_sim)
 		# "Change view" cursor tooltip in FINAL mode
-		if not preview_sim.is_empty() and not selecting_unit and not ds_selecting_turn:
+		if not _state.preview_sim.is_empty() and not _state.selecting_unit and not _state.ds_selecting_turn:
 			var vp_f = get_viewport_rect().size
 			var vhf_font = ThemeDB.fallback_font
 			var vhf_fs = 14
@@ -1426,12 +1386,12 @@ func _draw():
 			var vhf_nums = "1  2  3  4"
 			var vhf_tw = vhf_font.get_string_size(vhf_prefix + vhf_nums, HORIZONTAL_ALIGNMENT_LEFT, -1, vhf_fs).x + vhf_pad * 2
 			var vhf_th = 18 + vhf_pad * 2
-			var vhf_x = _mouse_pos.x + 20
-			var vhf_y = _mouse_pos.y - vhf_th - 10
+			var vhf_x = _state._mouse_pos.x + 20
+			var vhf_y = _state._mouse_pos.y - vhf_th - 10
 			if vhf_x + vhf_tw > vp_f.x - 10:
-				vhf_x = _mouse_pos.x - vhf_tw - 10
+				vhf_x = _state._mouse_pos.x - vhf_tw - 10
 			if vhf_y < 10:
-				vhf_y = _mouse_pos.y + 30
+				vhf_y = _state._mouse_pos.y + 30
 			draw_rect(Rect2(vhf_x, vhf_y, vhf_tw, vhf_th), Color(0.05, 0.05, 0.1, 0.8))
 			draw_rect(Rect2(vhf_x, vhf_y, vhf_tw, vhf_th), Color(0.5, 0.5, 0.5, 0.4), false, 1.5)
 			var vhf_cx = vhf_x + vhf_pad
@@ -1441,33 +1401,26 @@ func _draw():
 			vhf_cx += vhf_font.get_string_size(vhf_prefix, HORIZONTAL_ALIGNMENT_LEFT, -1, vhf_fs).x
 			for vi in 4:
 				var vnum = str(vi + 1)
-				var vnum_col = Color(1.0, 0.9, 0.3) if vi == view_mode else Color(0.5, 0.5, 0.5)
+				var vnum_col = Color(1.0, 0.9, 0.3) if vi == _state.view_mode else Color(0.5, 0.5, 0.5)
 				draw_string(vhf_font, Vector2(vhf_cx, vhf_cy), vnum,
 					HORIZONTAL_ALIGNMENT_LEFT, -1, vhf_fs, vnum_col)
 				var vnum_spacing = vnum + ("  " if vi < 3 else "")
 				vhf_cx += vhf_font.get_string_size(vnum_spacing, HORIZONTAL_ALIGNMENT_LEFT, -1, vhf_fs).x
-		# Overlay popups
-		if selecting_unit:
-			_draw_unit_select()
-		elif ds_selecting_turn:
-			_draw_ds_turn_select()
 		return
 
 	# Normal mode: BattleRenderer draws tiles + sim, we draw HUD on top
 	_draw_hud()
-	if show_analytics_ui:
-		_draw_scoreboard(draw_sim)
-		_draw_unit_fate(draw_sim)
+	if _state.show_analytics_ui:
 		_draw_combat_log()
 		if use_preview:
 			_draw_preview_narrative(draw_sim)
 
 		# Trail hover tooltip (works in both DEPLOY and DONE phases)
-		if hover_trail_uid >= 0 and not selecting_unit and not ds_selecting_turn and not showing_shift_summary and not show_summary:
+		if _state.hover_trail_uid >= 0 and not _state.selecting_unit and not _state.ds_selecting_turn and not _state.showing_shift_summary and not _state.show_summary:
 			_draw_trail_tooltip(draw_sim)
 
 	# "Change view" cursor tooltip during deploy with active preview
-	if phase == Phase.DEPLOY and not preview_sim.is_empty() and not selecting_unit and not ds_selecting_turn and not showing_shift_summary and not show_summary:
+	if _state.phase == GameState.Phase.DEPLOY and not _state.preview_sim.is_empty() and not _state.selecting_unit and not _state.ds_selecting_turn and not _state.showing_shift_summary and not _state.show_summary:
 		var vh_font = ThemeDB.fallback_font
 		var vh_fs = 14
 		var vh_pad = 6
@@ -1475,12 +1428,12 @@ func _draw():
 		var vh_nums = "1  2  3  4"
 		var vh_tw = vh_font.get_string_size(vh_prefix + vh_nums, HORIZONTAL_ALIGNMENT_LEFT, -1, vh_fs).x + vh_pad * 2
 		var vh_th = 18 + vh_pad * 2
-		var vh_x = _mouse_pos.x + 20
-		var vh_y = _mouse_pos.y - vh_th - 10
+		var vh_x = _state._mouse_pos.x + 20
+		var vh_y = _state._mouse_pos.y - vh_th - 10
 		if vh_x + vh_tw > vp.x - 10:
-			vh_x = _mouse_pos.x - vh_tw - 10
+			vh_x = _state._mouse_pos.x - vh_tw - 10
 		if vh_y < 10:
-			vh_y = _mouse_pos.y + 30
+			vh_y = _state._mouse_pos.y + 30
 		draw_rect(Rect2(vh_x, vh_y, vh_tw, vh_th), Color(0.05, 0.05, 0.1, 0.8))
 		draw_rect(Rect2(vh_x, vh_y, vh_tw, vh_th), Color(0.5, 0.5, 0.5, 0.4), false, 1.5)
 		var vh_cx = vh_x + vh_pad
@@ -1490,23 +1443,19 @@ func _draw():
 		vh_cx += vh_font.get_string_size(vh_prefix, HORIZONTAL_ALIGNMENT_LEFT, -1, vh_fs).x
 		for vi in 4:
 			var vnum = str(vi + 1)
-			var vnum_col = Color(1.0, 0.9, 0.3) if vi == view_mode else Color(0.5, 0.5, 0.5)
+			var vnum_col = Color(1.0, 0.9, 0.3) if vi == _state.view_mode else Color(0.5, 0.5, 0.5)
 			draw_string(vh_font, Vector2(vh_cx, vh_cy), vnum,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, vh_fs, vnum_col)
 			var vnum_spacing = vnum + ("  " if vi < 3 else "")
 			vh_cx += vh_font.get_string_size(vnum_spacing, HORIZONTAL_ALIGNMENT_LEFT, -1, vh_fs).x
 
 	# Shift summary bar at bottom
-	if showing_shift_summary and not shift_summary_lines.is_empty():
+	if _state.showing_shift_summary and not _state.shift_summary_lines.is_empty():
 		_draw_shift_summary()
 
 	# Overlay popups (drawn last, on top)
-	if show_summary:
+	if _state.show_summary:
 		_draw_battle_summary()
-	elif phase == Phase.DEPLOY and selecting_unit:
-		_draw_unit_select()
-	elif phase == Phase.DEPLOY and ds_selecting_turn:
-		_draw_ds_turn_select()
 
 func _draw_shift_summary():
 	var vp_size = get_viewport_rect().size
@@ -1515,7 +1464,7 @@ func _draw_shift_summary():
 	var font_size = 15
 	var title_size = 20
 	var pad = 15.0
-	var total_lines = shift_summary_lines.size()
+	var total_lines = _state.shift_summary_lines.size()
 	var max_visible_lines = 12
 	var visible_lines = mini(total_lines, max_visible_lines)
 	# Box height: title + visible lines + click prompt
@@ -1525,7 +1474,7 @@ func _draw_shift_summary():
 	var box_y = vp_size.y * 0.7 - box_h * 0.5
 	# Clamp scroll
 	var max_scroll = maxi(0, total_lines - max_visible_lines)
-	shift_summary_scroll = clampi(shift_summary_scroll, 0, max_scroll)
+	_state.shift_summary_scroll = clampi(_state.shift_summary_scroll, 0, max_scroll)
 	# Dark background with border
 	draw_rect(Rect2(box_x - 2, box_y - 2, box_w + 4, box_h + 4), Color(0.8, 0.7, 0.3, 0.9))
 	draw_rect(Rect2(box_x, box_y, box_w, box_h), Color(0.12, 0.12, 0.15, 0.95))
@@ -1535,9 +1484,9 @@ func _draw_shift_summary():
 	# Colored text lines (scrollable)
 	var y_cursor = box_y + 30.0 + line_h
 	for li in visible_lines:
-		var line_idx = li + shift_summary_scroll
+		var line_idx = li + _state.shift_summary_scroll
 		if line_idx >= total_lines: break
-		var line = shift_summary_lines[line_idx]
+		var line = _state.shift_summary_lines[line_idx]
 		var x_cursor = box_x + pad
 		for seg in line:
 			var text: String = seg.t
@@ -1553,18 +1502,18 @@ func _draw_shift_summary():
 		var bar_h = visible_lines * line_h
 		draw_rect(Rect2(bar_x, bar_top, 5, bar_h), Color(0.3, 0.3, 0.3, 0.5))
 		var thumb_h = bar_h * float(visible_lines) / float(total_lines)
-		var thumb_y = bar_top + (bar_h - thumb_h) * float(shift_summary_scroll) / float(max_scroll)
+		var thumb_y = bar_top + (bar_h - thumb_h) * float(_state.shift_summary_scroll) / float(max_scroll)
 		draw_rect(Rect2(bar_x, thumb_y, 5, thumb_h), Color(0.7, 0.7, 0.7, 0.7))
 	# Click prompt
 	draw_string(font, Vector2(box_x + pad, y_cursor + 4), "(click to continue)",
 		HORIZONTAL_ALIGNMENT_LEFT, box_w - pad * 2, 13, Color(0.6, 0.6, 0.6, 0.8))
 	# Draw fate icons on the map with swell animation
-	if not shift_summary_diff.is_empty() and not confirmed_sim.is_empty():
-		var fate_changes: Array = shift_summary_diff.get("fate_changes", [])
-		var timelines_s: Array = confirmed_sim.get("timelines", [])
-		var units_s: Array = confirmed_sim.get("units", [])
+	if not _state.shift_summary_diff.is_empty() and not _state.confirmed_sim.is_empty():
+		var fate_changes: Array = _state.shift_summary_diff.get("fate_changes", [])
+		var timelines_s: Array = _state.confirmed_sim.get("timelines", [])
+		var units_s: Array = _state.confirmed_sim.get("units", [])
 		# Swell: pulse from 1.0 to 1.0+amplitude and back
-		var swell = 1.0 + _visual.shift_pulse_amplitude * sin(shift_summary_timer * TAU / _visual.shift_pulse_period)
+		var swell = 1.0 + _visual.shift_pulse_amplitude * sin(_state.shift_summary_timer * TAU / _visual.shift_pulse_period)
 		var icon_size = HEX_SIZE * _visual.fate_icon_scale * cam_zoom * swell
 		for fc in fate_changes:
 			var uid_fc: int = fc.uid
@@ -1588,68 +1537,10 @@ func _draw_shift_summary():
 				draw_texture_rect(_icon_survive, r, false, team_tint)
 
 func _draw_hud():
-	var font = ThemeDB.fallback_font
-	var vp   = get_viewport_rect().size
-	draw_rect(Rect2(0, 0, vp.x, 44), Color(0, 0, 0, 0.75))
-
-	var p1_placed = placed_p1.size()
-	var p2_placed = placed_p2.size()
-	var txt := ""
-
-	if phase == Phase.DEPLOY:
-		var who = "BLUE (P1)" if active_player == 1 else "RED (P2)"
-		var zone_desc = "bottom zone" if active_player == 1 else "top zone"
-		var utype = deploy_unit_type.replace("_", " ").to_upper()
-		var hint = "Select a unit type" if selecting_unit else ("Select arrival turn" if ds_selecting_turn else ("Click %s to place %s" % [zone_desc, utype]))
-		txt = "%s's turn — %s   |   P1: %d/%d   P2: %d/%d" \
-			% [who, hint, p1_placed, UNITS_PER_SIDE, p2_placed, UNITS_PER_SIDE]
-	elif phase == Phase.DONE:
-		var vpt: Array = confirmed_sim.get("vp_per_turn", [])
-		var final_vp = vpt[vpt.size() - 1] if vpt.size() > 0 else [0, 0]
-		var res = "DRAW"
-		if   final_vp[0] > final_vp[1]: res = "BLUE WINS"
-		elif final_vp[1] > final_vp[0]: res = "RED WINS"
-		txt = "ALL DEPLOYED — %s   |   VP: BLUE %d - RED %d   |   Turn %d/%d" \
-			% [res, final_vp[0], final_vp[1], anim_turn, TURNS]
-
-	draw_string(font, Vector2(14, 28), txt,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.88, 0.88, 0.88))
-
-	# View mode indicator during deployment
-	if phase == Phase.DEPLOY:
-		var mode_names = ["1:CLEAN", "2:CHANGED", "3:FULL", "4:FINAL"]
-		var mode_x = vp.x - 480.0
-		for i in 4:
-			var label = mode_names[i]
-			var is_active = (i == view_mode)
-			var col = Color(1.0, 0.9, 0.3) if is_active else Color(0.5, 0.5, 0.5)
-			if is_active:
-				label = "[%s]" % label
-			draw_string(font, Vector2(mode_x, 28), label,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 16, col)
-			mode_x += 115.0
-
-	# Turn indicator bar
-	var bar_y: float = 44.0
-	var bar_h: float = 4.0
-	draw_rect(Rect2(0, bar_y, vp.x, bar_h), Color(0.15, 0.14, 0.12))
-	var progress = float(anim_turn) / float(TURNS)
-	draw_rect(Rect2(0, bar_y, vp.x * progress, bar_h), C_COMBAT)
-
-	# REPLAY + SUMMARY buttons when game is done
-	if phase == Phase.DONE:
-		var btn_replay = Rect2(vp.x / 2.0 - 135, 55, 120, 36)
-		draw_rect(btn_replay, Color(0.85, 0.75, 0.2, 0.9))
-		draw_rect(btn_replay, Color(1, 1, 1, 0.4), false, 1.5)
-		draw_string(font, Vector2(btn_replay.position.x + 18, btn_replay.position.y + 24), "REPLAY", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.1, 0.1, 0.1))
-
-		var btn_summary = Rect2(vp.x / 2.0 + 15, 55, 120, 36)
-		draw_rect(btn_summary, Color(0.2, 0.55, 0.85, 0.9))
-		draw_rect(btn_summary, Color(1, 1, 1, 0.4), false, 1.5)
-		draw_string(font, Vector2(btn_summary.position.x + 6, btn_summary.position.y + 24), "SUMMARY", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(1, 1, 1))
+	pass  # Now handled by TopBar Control node (CanvasLayer)
 
 func _generate_preview_narrative(sim: Dictionary) -> Array:
-	if sim.is_empty() or preview_sim.is_empty():
+	if sim.is_empty() or _state.preview_sim.is_empty():
 		return []
 	var timelines: Array = sim.get("timelines", [])
 	var final_units: Array = sim.get("units", [])
@@ -1737,7 +1628,7 @@ func _generate_preview_narrative(sim: Dictionary) -> Array:
 			lines.append({"text": "Survives unscathed", "color": Color(0.3, 0.9, 0.3)})
 
 	# Score impact
-	var sd: Array = preview_diff.get("score_delta", [])
+	var sd: Array = _state.preview_diff.get("score_delta", [])
 	if sd.size() >= 2:
 		var delta = sd[0] if u.player == 1 else sd[1]
 		var enemy_delta = sd[1] if u.player == 1 else sd[0]
@@ -1749,7 +1640,7 @@ func _generate_preview_narrative(sim: Dictionary) -> Array:
 	return lines
 
 func _draw_preview_narrative(sim: Dictionary):
-	if preview_sim.is_empty():
+	if _state.preview_sim.is_empty():
 		return
 	var lines = _generate_preview_narrative(sim)
 	if lines.is_empty():
@@ -1764,7 +1655,7 @@ func _draw_preview_narrative(sim: Dictionary):
 	var panel_x = vp.x - panel_w - 16
 	# Position below fate chart: scoreboard + fate chart
 	var sb_h = 31 * (TURNS + 1) + 20
-	var fate_h = 29 * (preview_sim.get("units", []).size() + 1) + 10
+	var fate_h = 29 * (_state.preview_sim.get("units", []).size() + 1) + 10
 	var panel_y = 56.0 + sb_h + 10 + fate_h + 30
 
 	var panel_h = lines.size() * line_h + pad * 2
@@ -1778,17 +1669,17 @@ func _draw_preview_narrative(sim: Dictionary):
 		y += line_h
 
 func _draw_trail_tooltip(sim: Dictionary):
-	if hover_trail_uid < 0: return
+	if _state.hover_trail_uid < 0: return
 	var final_units: Array = sim.get("units", [])
 	var names: Array = sim.get("unit_names", [])
 	var kills_data: Array = sim.get("unit_kills", [])
 	var dmg_data: Array = sim.get("unit_dmg", [])
 	var obj_data: Array = sim.get("unit_obj", [])
 	var timelines_t: Array = sim.get("timelines", [])
-	if hover_trail_uid >= final_units.size(): return
+	if _state.hover_trail_uid >= final_units.size(): return
 
-	var u = final_units[hover_trail_uid]
-	var uname = names[hover_trail_uid] if hover_trail_uid < names.size() else "Unit"
+	var u = final_units[_state.hover_trail_uid]
+	var uname = names[_state.hover_trail_uid] if _state.hover_trail_uid < names.size() else "Unit"
 	var utype = u.unit_type.replace("_", " ").capitalize()
 	var team_col = C_P1 if u.player == 1 else C_P2
 	var team_str = "Blue" if u.player == 1 else "Red"
@@ -1809,16 +1700,16 @@ func _draw_trail_tooltip(sim: Dictionary):
 			lines.append({"text": "Survives unscathed", "color": Color(0.3, 0.9, 0.3)})
 
 	# Damage and kills
-	var dmg = dmg_data[hover_trail_uid] if hover_trail_uid < dmg_data.size() else 0
-	var kills = kills_data[hover_trail_uid] if hover_trail_uid < kills_data.size() else 0
+	var dmg = dmg_data[_state.hover_trail_uid] if _state.hover_trail_uid < dmg_data.size() else 0
+	var kills = kills_data[_state.hover_trail_uid] if _state.hover_trail_uid < kills_data.size() else 0
 	if dmg > 0 or kills > 0:
 		lines.append({"text": "%d damage, %d kills" % [dmg, kills], "color": Color(0.9, 0.6, 0.2)})
 
 	# Objective contribution
-	if hover_trail_uid < obj_data.size():
+	if _state.hover_trail_uid < obj_data.size():
 		var obj_strs: Array = []
 		for oi in 3:
-			var status = obj_data[hover_trail_uid][oi]
+			var status = obj_data[_state.hover_trail_uid][oi]
 			if status == "won":
 				obj_strs.append("O%d:WON" % (oi + 1))
 			elif status == "yes":
@@ -1842,12 +1733,12 @@ func _draw_trail_tooltip(sim: Dictionary):
 	var panel_h = lines.size() * line_h + pad * 2
 
 	# Position near mouse, offset right+down, clamp to viewport
-	var px = _mouse_pos.x + 20
-	var py = _mouse_pos.y + 20
+	var px = _state._mouse_pos.x + 20
+	var py = _state._mouse_pos.y + 20
 	if px + panel_w > vp.x - 10:
-		px = _mouse_pos.x - panel_w - 10
+		px = _state._mouse_pos.x - panel_w - 10
 	if py + panel_h > vp.y - 10:
-		py = _mouse_pos.y - panel_h - 10
+		py = _state._mouse_pos.y - panel_h - 10
 
 	draw_rect(Rect2(px, py, panel_w, panel_h), Color(0.05, 0.05, 0.1, 0.9))
 	draw_rect(Rect2(px, py, panel_w, panel_h), Color(team_col.r, team_col.g, team_col.b, 0.6), false, 2.0)
@@ -1858,155 +1749,8 @@ func _draw_trail_tooltip(sim: Dictionary):
 			HORIZONTAL_ALIGNMENT_LEFT, panel_w - pad * 2, fs, entry.color)
 		ty += line_h
 
-func _draw_scoreboard(sim: Dictionary):
-	var vpt: Array = sim.get("vp_per_turn", [])
-	if vpt.is_empty():
-		return
-
-	var font = ThemeDB.fallback_font
-	var vp   = get_viewport_rect().size
-	var fs   = 21  # font size
-	var row_h = 31
-	var col_w = 85
-	var pad   = 10
-	var board_w = col_w * 3  # turn label + blue + red
-	var board_h = row_h * (TURNS + 2) + pad * 2  # header + turn rows + delta row + padding
-	var bx = vp.x - board_w - 16  # right side
-	var by: float = 56.0  # below HUD bar
-
-	# Background
-	draw_rect(Rect2(bx, by, board_w, board_h), Color(0, 0, 0, 0.7))
-
-	# Header row
-	var hdr_y = by + pad + row_h * 0.7
-	draw_string(font, Vector2(bx + pad, hdr_y), "Turn", HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, Color(0.7, 0.7, 0.7))
-	draw_string(font, Vector2(bx + col_w, hdr_y), "BLUE", HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, C_P1)
-	draw_string(font, Vector2(bx + col_w * 2, hdr_y), "RED", HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, C_P2)
-
-	# Turn rows
-	for t in TURNS:
-		var ry = by + pad + row_h * (t + 1) + row_h * 0.7
-		var label = str(t + 1)
-		draw_string(font, Vector2(bx + pad, ry), label, HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, Color(0.6, 0.6, 0.6))
-		if t < vpt.size():
-			var p1v = str(vpt[t][0])
-			var p2v = str(vpt[t][1])
-			draw_string(font, Vector2(bx + col_w, ry), p1v, HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, C_P1)
-			draw_string(font, Vector2(bx + col_w * 2, ry), p2v, HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, C_P2)
-
-	# Score delta when previewing
-	var sd: Array = preview_diff.get("score_delta", [])
-	if sd.size() >= 2 and (sd[0] != 0 or sd[1] != 0):
-		var dy = by + pad + row_h * (TURNS + 1) + row_h * 0.7
-		if sd[0] != 0:
-			var s = ("+" if sd[0] > 0 else "") + str(sd[0])
-			var c = Color(0.3, 0.9, 0.3) if sd[0] > 0 else Color(0.9, 0.3, 0.3)
-			draw_string(font, Vector2(bx + col_w, dy), s, HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, c)
-		if sd[1] != 0:
-			var s = ("+" if sd[1] > 0 else "") + str(sd[1])
-			var c = Color(0.3, 0.9, 0.3) if sd[1] > 0 else Color(0.9, 0.3, 0.3)
-			draw_string(font, Vector2(bx + col_w * 2, dy), s, HORIZONTAL_ALIGNMENT_LEFT, col_w, fs, c)
-
-func _draw_unit_fate(sim: Dictionary):
-	var names: Array = sim.get("unit_names", [])
-	if names.is_empty():
-		return
-	var final_units: Array = sim.get("units", [])
-	var obj_data: Array = sim.get("unit_obj", [])
-	var kills_data: Array = sim.get("unit_kills", [])
-	var dmg_data: Array = sim.get("unit_dmg", [])
-
-	var font = ThemeDB.fallback_font
-	var vp = get_viewport_rect().size
-	var fs = 20
-	var row_h = 29
-	var cw = [115, 54, 46, 46, 46, 54, 54]  # unit, died, o1, o2, o3, kills, dmg
-	var total_w = 0
-	for w in cw:
-		total_w += w
-
-	# Position below scoreboard
-	var sb_h = 31 * (TURNS + 2) + 20
-	var bx = vp.x - total_w - 16
-	var by = 56.0 + sb_h + 10
-
-	var num = final_units.size()
-	var chart_h = row_h * (num + 1) + 10
-
-	# Background
-	draw_rect(Rect2(bx, by, total_w, chart_h), Color(0, 0, 0, 0.7))
-
-	# Header
-	var hy = by + row_h * 0.85
-	var headers = ["Unit", "Died", "O1", "O2", "O3", "Kills", "Dmg"]
-	var hx = bx
-	for i in headers.size():
-		draw_string(font, Vector2(hx + 3, hy), headers[i], HORIZONTAL_ALIGNMENT_LEFT, cw[i], fs, Color(0.7, 0.7, 0.7))
-		hx += cw[i]
-
-	# Rows
-	for uid in num:
-		var u = final_units[uid]
-		var ry = by + row_h * (uid + 1) + row_h * 0.85
-		var rx = bx
-		var tc = C_P1 if u.player == 1 else C_P2
-
-		# Team divider
-		if uid > 0 and u.player != final_units[uid - 1].player:
-			var div_y = by + row_h * (uid + 1) - 1
-			draw_line(Vector2(bx, div_y), Vector2(bx + total_w, div_y), Color(0.4, 0.4, 0.4, 0.5), 1.0)
-
-		# Diff highlight (preview vs confirmed)
-		var fate_list: Array = preview_diff.get("fate_changes", [])
-		if uid < fate_list.size() and fate_list[uid].changed:
-			var row_rect = Rect2(bx, by + row_h * (uid + 1), total_w, row_h)
-			var tint_col: Color
-			match fate_list[uid].fate:
-				"now_survives": tint_col = Color(0.2, 0.8, 0.2, 0.25)
-				"now_dies":     tint_col = Color(0.8, 0.2, 0.2, 0.25)
-				_:              tint_col = Color(0.8, 0.8, 0.2, 0.15)
-			draw_rect(row_rect, tint_col)
-
-		# Name with type prefix
-		var tp = _unit_prefix(u.unit_type) + " "
-		draw_string(font, Vector2(rx + 3, ry), tp + names[uid], HORIZONTAL_ALIGNMENT_LEFT, cw[0], fs, tc)
-		rx += cw[0]
-
-		# Died on turn
-		var d_str = str(u.elim_turn + 1) if u.eliminated else "-"
-		var d_col = Color(0.8, 0.3, 0.3) if u.eliminated else Color(0.5, 0.5, 0.5)
-		draw_string(font, Vector2(rx + 3, ry), d_str, HORIZONTAL_ALIGNMENT_LEFT, cw[1], fs, d_col)
-		rx += cw[1]
-
-		# Objective columns
-		for oi in 3:
-			var status = obj_data[uid][oi] if uid < obj_data.size() else "no"
-			var s_str = "-"
-			var s_col = Color(0.5, 0.5, 0.5)
-			if status == "won":
-				s_str = "WON"
-				s_col = Color(0.3, 0.9, 0.3)
-			elif status == "yes":
-				s_str = "yes"
-				s_col = Color(0.8, 0.8, 0.3)
-			draw_string(font, Vector2(rx + 3, ry), s_str, HORIZONTAL_ALIGNMENT_LEFT, cw[2 + oi], fs, s_col)
-			rx += cw[2 + oi]
-
-		# Kills
-		var k = kills_data[uid] if uid < kills_data.size() else 0
-		var k_str = str(k) if k > 0 else "-"
-		var k_col = Color(0.9, 0.6, 0.2) if k > 0 else Color(0.5, 0.5, 0.5)
-		draw_string(font, Vector2(rx + 3, ry), k_str, HORIZONTAL_ALIGNMENT_LEFT, cw[5], fs, k_col)
-		rx += cw[5]
-
-		# Damage
-		var dmg = dmg_data[uid] if uid < dmg_data.size() else 0
-		var dmg_str = str(dmg) if dmg > 0 else "-"
-		var dmg_col = Color(0.9, 0.4, 0.4) if dmg > 0 else Color(0.5, 0.5, 0.5)
-		draw_string(font, Vector2(rx + 3, ry), dmg_str, HORIZONTAL_ALIGNMENT_LEFT, cw[6], fs, dmg_col)
-
 func _draw_combat_log():
-	if log_lines.is_empty():
+	if _state.log_lines.is_empty():
 		return
 	var font = ThemeDB.fallback_font
 	var vp = get_viewport_rect().size
@@ -2027,11 +1771,11 @@ func _draw_combat_log():
 
 	# Lines
 	var start_y = panel_y + 28
-	var max_lines = mini(visible_lines - 2, log_lines.size() - log_scroll)
+	var max_lines = mini(visible_lines - 2, _state.log_lines.size() - _state.log_scroll)
 	for i in max_lines:
-		var li = log_scroll + i
-		if li >= log_lines.size(): break
-		var line: String = log_lines[li]
+		var li = _state.log_scroll + i
+		if li >= _state.log_lines.size(): break
+		var line: String = _state.log_lines[li]
 		var y_pos = start_y + i * line_h
 		if y_pos + line_h > panel_y + panel_h: break
 		# Color based on content
@@ -2049,9 +1793,9 @@ func _draw_combat_log():
 		draw_string(font, Vector2(panel_x + pad, y_pos), line, HORIZONTAL_ALIGNMENT_LEFT, panel_w - pad * 2, fs, col)
 
 	# Scroll indicator
-	if log_lines.size() > visible_lines:
-		var scroll_frac = float(log_scroll) / float(maxi(1, log_lines.size() - visible_lines))
-		var bar_h = panel_h * float(visible_lines) / float(log_lines.size())
+	if _state.log_lines.size() > visible_lines:
+		var scroll_frac = float(_state.log_scroll) / float(maxi(1, _state.log_lines.size() - visible_lines))
+		var bar_h = panel_h * float(visible_lines) / float(_state.log_lines.size())
 		var bar_y = panel_y + scroll_frac * (panel_h - bar_h)
 		draw_rect(Rect2(panel_x + panel_w - 4, bar_y, 3, bar_h), Color(0.5, 0.5, 0.5, 0.5))
 
@@ -2092,89 +1836,23 @@ func _draw_battle_summary():
 
 	# Clip to panel
 	var visible_lines := int(content_h / line_h)
-	var max_scroll = maxi(0, summary_lines.size() - visible_lines)
-	summary_scroll = clampi(summary_scroll, 0, max_scroll)
+	var max_scroll = maxi(0, _state.summary_lines.size() - visible_lines)
+	_state.summary_scroll = clampi(_state.summary_scroll, 0, max_scroll)
 
 	var y: float = content_y_start
 	for i in visible_lines:
-		var idx = i + summary_scroll
-		if idx >= summary_lines.size(): break
-		var entry = summary_lines[idx]
+		var idx = i + _state.summary_scroll
+		if idx >= _state.summary_lines.size(): break
+		var entry = _state.summary_lines[idx]
 		var fsize = 18 if entry.bold else 16
 		draw_string(font, Vector2(content_x, y + 18), entry.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, entry.color)
 		y += line_h
 
 	# Scroll bar
-	if summary_lines.size() > visible_lines:
+	if _state.summary_lines.size() > visible_lines:
 		var bar_x: float = panel_x + panel_w - 8
 		var bar_total_h: float = content_h
-		var thumb_h: float = maxf(20.0, bar_total_h * float(visible_lines) / float(summary_lines.size()))
-		var thumb_y: float = content_y_start + (bar_total_h - thumb_h) * float(summary_scroll) / float(max_scroll) if max_scroll > 0 else content_y_start
+		var thumb_h: float = maxf(20.0, bar_total_h * float(visible_lines) / float(_state.summary_lines.size()))
+		var thumb_y: float = content_y_start + (bar_total_h - thumb_h) * float(_state.summary_scroll) / float(max_scroll) if max_scroll > 0 else content_y_start
 		draw_rect(Rect2(bar_x, content_y_start, 4, bar_total_h), Color(0.2, 0.2, 0.2, 0.5))
 		draw_rect(Rect2(bar_x, thumb_y, 4, thumb_h), Color(0.5, 0.5, 0.5, 0.7))
-
-# ============================================================================
-# UNIT SELECTION & DEEP STRIKE UI
-# ============================================================================
-
-func _draw_unit_select():
-	var font = ThemeDB.fallback_font
-	var vp = get_viewport_rect().size
-	# Dim overlay
-	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.6))
-
-	var accent = C_P1 if active_player == 1 else C_P2
-	var who = "BLUE" if active_player == 1 else "RED"
-	# Header
-	draw_string(font, Vector2(vp.x / 2.0 - 130, vp.y / 2.0 - 55),
-		"%s — Choose Unit Type" % who, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, accent)
-
-	var btn_w = 145.0
-	var btn_h = 48.0
-	var gap = 10.0
-	var total_w = UNIT_TYPES.size() * btn_w + (UNIT_TYPES.size() - 1) * gap
-	var start_x = (vp.x - total_w) / 2.0
-	var start_y = vp.y / 2.0 - btn_h / 2.0
-
-	var mpos = get_viewport().get_mouse_position()
-	for i in UNIT_TYPES.size():
-		var bx = start_x + i * (btn_w + gap)
-		var rect = Rect2(bx, start_y, btn_w, btn_h)
-		var hovered = rect.has_point(mpos)
-		var fill_alpha = 0.55 if hovered else 0.3
-		var border_alpha = 1.0 if hovered else 0.5
-		draw_rect(rect, Color(accent.r, accent.g, accent.b, fill_alpha))
-		draw_rect(rect, Color(1, 1, 1, border_alpha), false, 2.0 if hovered else 1.5)
-		var label = UNIT_TYPES[i].replace("_", " ").to_upper()
-		draw_string(font, Vector2(bx + 8, start_y + 30), label,
-			HORIZONTAL_ALIGNMENT_LEFT, btn_w - 16, 16, Color.WHITE if hovered else Color(0.95, 0.95, 0.95))
-
-func _draw_ds_turn_select():
-	var font = ThemeDB.fallback_font
-	var vp = get_viewport_rect().size
-	# Dim overlay
-	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.6))
-
-	var accent = C_P1 if active_player == 1 else C_P2
-	draw_string(font, Vector2(vp.x / 2.0 - 100, vp.y / 2.0 - 45),
-		"Choose Arrival Turn", HORIZONTAL_ALIGNMENT_LEFT, -1, 21, accent)
-
-	var btn_w = 60.0
-	var btn_h = 42.0
-	var gap = 10.0
-	var count = 7  # T2 through T8
-	var total_w = count * btn_w + (count - 1) * gap
-	var start_x = (vp.x - total_w) / 2.0
-	var start_y = vp.y / 2.0 - btn_h / 2.0
-
-	var mpos = get_viewport().get_mouse_position()
-	for i in count:
-		var bx = start_x + i * (btn_w + gap)
-		var rect = Rect2(bx, start_y, btn_w, btn_h)
-		var hovered = rect.has_point(mpos)
-		var fill_alpha = 0.55 if hovered else 0.3
-		var border_alpha = 1.0 if hovered else 0.5
-		draw_rect(rect, Color(accent.r, accent.g, accent.b, fill_alpha))
-		draw_rect(rect, Color(1, 1, 1, border_alpha), false, 2.0 if hovered else 1.5)
-		draw_string(font, Vector2(bx + 14, start_y + 28), "T%d" % (i + 2),
-			HORIZONTAL_ALIGNMENT_LEFT, btn_w - 10, 17, Color.WHITE if hovered else Color(0.95, 0.95, 0.95))

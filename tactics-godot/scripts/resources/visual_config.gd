@@ -204,3 +204,20 @@ extends Resource
 @export var replay_bar_bg: Color = Color(0.15, 0.14, 0.12, 1.0)
 @export var replay_hud_text: Color = Color(0.95, 0.85, 0.3, 1.0)
 @export var pip_inactive_color: Color = Color(0.3, 0.3, 0.3, 0.6)
+
+# ============================================================================
+# HUD PANELS
+# ============================================================================
+
+@export_group("HUD")
+@export var hud_bg_color: Color = Color(0.0, 0.0, 0.0, 0.75)
+@export var hud_text_color: Color = Color(0.88, 0.88, 0.88, 1.0)
+@export var hud_text_size: int = 18
+@export var view_mode_active_color: Color = Color(1.0, 0.9, 0.3, 1.0)
+@export var view_mode_inactive_color: Color = Color(0.5, 0.5, 0.5, 1.0)
+@export var replay_btn_bg: Color = Color(0.85, 0.75, 0.2, 0.9)
+@export var replay_btn_text: Color = Color(0.1, 0.1, 0.1, 1.0)
+@export var summary_btn_bg: Color = Color(0.2, 0.55, 0.85, 0.9)
+@export var summary_btn_text: Color = Color(1.0, 1.0, 1.0, 1.0)
+@export var btn_border_color: Color = Color(1.0, 1.0, 1.0, 0.4)
+@export_range(0.5, 5.0) var btn_border_width: float = 1.5

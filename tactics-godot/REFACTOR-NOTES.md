@@ -54,21 +54,27 @@ Use Godot's built-in tools instead of reinventing them:
 
 | File | Lines | Role |
 |------|-------|------|
-| `HexMoveDemo.gd` | 2,171 | Orchestrator: state, input, deploy, HUD drawing |
-| `scripts/battle_renderer.gd` | 863 | Child Node2D: tiles, trails, tokens, sim rendering |
+| `HexMoveDemo.gd` | ~1,858 | Orchestrator: input, deploy, remaining HUD draw_* |
+| `scripts/game_state.gd` | 122 | Centralized mutable state (46 vars, 2 enums, 6 signals) |
+| `scripts/battle_renderer.gd` | 865 | Child Node2D: tiles, trails, tokens, sim rendering |
+| `scripts/hud/top_bar.gd` | 124 | TopBar: phase text, view modes, progress bar, replay/summary |
+| `scripts/hud/unit_select_popup.gd` | 60 | UnitSelectPopup: unit type selection modal |
+| `scripts/hud/ds_turn_popup.gd` | 55 | DSTurnPopup: DS arrival turn selection modal |
+| `scripts/hud/scoreboard.gd` | 98 | Scoreboard: VP per turn table with preview delta |
+| `scripts/hud/fate_chart.gd` | 231 | FateChart: per-unit stats with fate change highlighting |
 | `scripts/hex_math.gd` | 94 | Pure hex math (static class) |
 | `scripts/combat_simulator.gd` | 948 | Simulation, AI, pathfinding, combat |
 | `scripts/resources/*.gd` | 5 files | UnitStats, GridConfig, BattleConfig, TerrainType, VisualConfig |
-| `resources/**/*.tres` | 11 files | 5 units + 3 config + 3 terrain |
+| `resources/**/*.tres` | 13 files | 5 units + 3 config + 3 terrain + 1 theme |
+| `scenes/hud/*.tscn` | 5 files | TopBar, UnitSelectPopup, DSTurnPopup, Scoreboard, FateChart scenes |
 | `HeadlessSim.gd` | 304 | CLI simulation runner (uses CombatSimulator directly) |
 
-**Solved:** Unit stats editable in Inspector, config values in `.tres` files, simulation engine decoupled, battle rendering extracted, all visual params (colors, alphas, widths, animation speeds) in VisualConfig resource.
+**Solved:** Unit stats editable in Inspector, config values in `.tres` files, simulation engine decoupled, battle rendering extracted, all visual params (colors, alphas, widths, animation speeds) in VisualConfig resource, mutable state centralized in GameState with signals defined.
 
 **Anti-patterns remaining:**
-1. All HUD drawn via draw_* calls — no Control nodes, no theming
-2. All state lives in HexMoveDemo.gd — child nodes reach back via `_parent.xxx`
-3. Tiles drawn per-frame in code (2,240 draw calls) — TileMapLayer exists but unused visually
-4. No signals — tight coupling between nodes
+1. Most HUD still drawn via draw_* calls — TopBar, popups, scoreboard, fate chart migrated; 6 panels remain
+2. Tiles drawn per-frame in code (2,240 draw calls) — TileMapLayer exists but unused visually
+3. Most signals not yet wired — TopBar connects to 4 signals; other nodes still call methods directly
 
 ---
 
@@ -295,12 +301,14 @@ Extracted 862 lines of battle drawing code into `scripts/battle_renderer.gd` as 
 
 ### Migration Phases (Godot-Native Architecture)
 
-#### Phase 7: GameState Extraction — TODO
-- Create `scripts/game_state.gd` (`class_name GameState extends Node`)
-- Move all mutable state vars from HexMoveDemo.gd into GameState
-- Add signals: `sim_changed`, `phase_changed`, `hover_changed`, `view_mode_changed`, `unit_placed`, `replay_changed`
-- Update BattleRenderer: change `_parent.xxx` refs to `_state.xxx` refs
-- **Risk:** Highest-risk phase — touches every file. Must preserve exact behavior.
+#### Phase 7: GameState Extraction — DONE
+- Created `scripts/game_state.gd` (122 lines, `class_name GameState extends Node`)
+- Moved 46 mutable state vars + 2 enums (Phase, ViewMode) from HexMoveDemo.gd into GameState
+- Added 6 signals: `sim_changed`, `phase_changed`, `hover_changed`, `view_mode_changed`, `unit_placed`, `replay_changed`
+- HexMoveDemo: state access via `_state.xxx`, enums via `GameState.Phase.XXX` / `GameState.ViewMode.XXX`
+- BattleRenderer: 71 state refs changed from `_parent.xxx` to `_state.xxx`, 20 enum refs updated; 137 config/method refs stay as `_parent.xxx`
+- Signal emissions added at 11 state transition points (guarded with old != new checks where appropriate)
+- All tests pass. Zero behavior change.
 
 #### Phase 8: VisualConfig Resource — DONE
 - Created `scripts/resources/visual_config.gd` (207 lines, 91 @export vars in 16 groups)
@@ -310,19 +318,69 @@ Extracted 862 lines of battle drawing code into `scripts/battle_renderer.gd` as 
 - Both files preload the resource independently (decoupled)
 - **Pure data extraction — no logic changes, all tests pass.**
 
-#### Phase 9: HUD → Control Nodes — TODO
-- Create `scenes/hud/` directory with `.tscn` files for each panel
-- Build each panel as a Godot Control node tree (PanelContainer, Label, GridContainer, etc.)
-- Each panel has a script that connects to GameState signals
-- Remove corresponding draw_* functions from HexMoveDemo.gd (~670 lines)
-- Use a Godot Theme resource for consistent styling
-- **Highest-effort phase.** Do one panel at a time, test after each.
+#### Phase 9: HUD → Control Nodes — IN PROGRESS
+
+##### Phase 9.1: TopBar + Infrastructure — DONE
+- Created `scenes/hud/`, `scripts/hud/`, `resources/themes/` directories
+- Created `resources/themes/hud_theme.tres` — shared Godot Theme (PanelContainer, Label, Button styles)
+- Added 11 HUD @export vars to VisualConfig (hud_bg, text colors, button colors, view mode colors)
+- Created `scripts/hud/top_bar.gd` (124 lines, `class_name TopBar extends PanelContainer`)
+- Created `scenes/hud/top_bar.tscn` — PanelContainer with VBox, MainRow, ViewModes, ProgressBar, ButtonRow
+- TopBar connects to 4 GameState signals: `phase_changed`, `sim_changed`, `view_mode_changed`, `unit_placed`
+- TopBar emits `replay_requested` and `summary_requested` signals (HexMoveDemo connects to these)
+- View mode buttons are clickable + keyboard shortcuts (1-4) both work
+- TopBar hides during replay mode (BattleRenderer has its own replay HUD)
+- CanvasLayer at layer=10, created in HexMoveDemo._ready() after BattleRenderer
+- `_draw_hud()` hollowed out (body → `pass`), REPLAY/SUMMARY click rects removed from `_input()`
+- HexMoveDemo.gd: 2,136 → 2,088 lines (net -48)
+
+##### Phase 9.2: Deploy Popups — DONE
+- Created `scripts/hud/unit_select_popup.gd` (60 lines, `class_name UnitSelectPopup extends ColorRect`)
+- Created `scripts/hud/ds_turn_popup.gd` (55 lines, `class_name DSTurnPopup extends ColorRect`)
+- Created `scenes/hud/unit_select_popup.tscn` and `scenes/hud/ds_turn_popup.tscn`
+- ColorRect root = dim overlay (`Color(0,0,0,0.6)`, `mouse_filter=STOP` blocks clicks behind)
+- CenterContainer → PanelContainer → VBox (header Label + HBox of Buttons)
+- Both use `init(state: GameState)`, sync visibility via `_process()` checking state flags
+- UnitSelectPopup emits `unit_selected(type: String)`, DSTurnPopup emits `turn_selected(turn: int)`
+- HexMoveDemo connects signals → `_on_unit_selected()` / `_on_ds_turn_selected()` handlers
+- Removed: `_draw_unit_select()`, `_draw_ds_turn_select()`, `_handle_unit_select_click()`, `_handle_ds_turn_click()`, popup draw calls in `_draw()`, popup input routing in `_input()`
+- HexMoveDemo.gd: 2,088 → ~1,988 lines (net -100)
+- **Pure UI extraction — no logic changes, all tests pass.**
+
+##### Phase 9.3: Scoreboard — DONE
+- Created `scripts/hud/scoreboard.gd` (98 lines, `class_name Scoreboard extends PanelContainer`)
+- Created `scenes/hud/scoreboard.tscn` — PanelContainer anchored top-right, GridContainer with 3 columns
+- Dynamic row creation in `_build_grid()` based on `_battle.turns` (config-driven)
+- Connects to `sim_changed` signal, reads `confirmed_sim`/`preview_sim` VP data
+- Preview delta row shows +/- from `_state.preview_diff.score_delta`
+- Visibility synced with `show_analytics_ui` (TAB toggle) and `replay_mode`
+- `mouse_filter=IGNORE` — clicks pass through to map
+- Removed `_draw_scoreboard()` function and 2 call sites from HexMoveDemo.gd
+- HexMoveDemo.gd: ~1,988 → ~1,943 lines (net -45)
+- **Pure UI extraction — no logic changes, all tests pass.**
+
+##### Phase 9.4: FateChart — DONE
+- Created `scripts/hud/fate_chart.gd` (231 lines, `class_name FateChart extends PanelContainer`)
+- Created `scenes/hud/fate_chart.tscn` — PanelContainer with VBoxContainer of dynamic rows
+- Each unit row = PanelContainer (bg highlight) → HBoxContainer → 7 Labels (Unit, Died, O1-O3, Kills, Dmg)
+- Row highlighting via StyleBoxFlat: green (now_survives), red (now_dies), yellow (shifted)
+- Team divider (HSeparator) between P1 and P2 unit rows
+- Connects to `sim_changed` signal, reads sim data + `preview_diff.fate_changes`
+- Duplicated `_unit_prefix()` helper (5-value match from UnitStats.prefix)
+- Added VBoxContainer wrapper ("AnalyticsPanel") to auto-stack Scoreboard + FateChart on right side
+- Modified `scoreboard.tscn` — removed anchor/offset (VBox wrapper handles positioning)
+- Removed `_draw_unit_fate()` function (98 lines) and 2 call sites from HexMoveDemo.gd
+- HexMoveDemo.gd: ~1,943 → ~1,858 lines (net -85)
+- **Pure UI extraction — no logic changes, all tests pass.**
+
+##### Phase 9.5+: Remaining Panels — TODO
+Build each panel as a Godot Control node tree, connect to GameState signals, remove corresponding draw_* code.
 
 Panels in priority order:
-1. TopBar — simple, high visibility
-2. UnitSelectPopup + DSTurnSelectPopup — modal popups, clear Control node fit
-3. Scoreboard — tabular data, GridContainer
-4. FateChart — tabular, similar to scoreboard
+1. ~~TopBar~~ — **DONE** (Phase 9.1)
+2. ~~UnitSelectPopup + DSTurnPopup~~ — **DONE** (Phase 9.2)
+3. ~~Scoreboard~~ — **DONE** (Phase 9.3)
+4. ~~FateChart~~ — **DONE** (Phase 9.4)
 5. CombatLog — ScrollContainer + RichTextLabel
 6. TrailTooltip — small, cursor-following
 7. NarrativePanel — text list
