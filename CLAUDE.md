@@ -5,14 +5,15 @@
 ball-cannon/          HTML5 canvas ball cannon prototype
 tactics/              HTML5 canvas tactics prototype  (prototype.html)
 tactics-godot/        Godot 4.6 hex tactics DEVELOPER TESTING TOOL  (main active project)
-  HexMoveDemo.gd       Main orchestrator (~1,858 lines — input, deploy, remaining HUD draw_*)
+  HexMoveDemo.gd       Main orchestrator (~1,799 lines — input, deploy, remaining HUD draw_*)
   scripts/
-    game_state.gd       Centralized mutable state + signals (122 lines)
+    game_state.gd       Centralized mutable state + signals (121 lines)
     battle_renderer.gd  Battle rendering — tiles, trails, tokens (865 lines)
     hud/top_bar.gd      TopBar Control node — phase text, view modes, progress (124 lines)
     hud/unit_select_popup.gd  Unit type selection modal (60 lines)
     hud/ds_turn_popup.gd     DS arrival turn selection modal (55 lines)
     hud/scoreboard.gd       VP scoreboard Control node (98 lines)
+    hud/combat_log.gd       Scrollable combat log Control node (71 lines)
     hud/fate_chart.gd       Per-unit fate chart Control node (231 lines)
     hex_math.gd         Static pure hex math (94 lines)
     combat_simulator.gd Simulation, AI, pathfinding, combat (948 lines)
@@ -44,7 +45,8 @@ See `tactics-godot/CLAUDE.md` for Godot-specific rules, `tactics-godot/REFACTOR-
 - **Phase 9.2: DONE** — UnitSelectPopup + DSTurnPopup → Control nodes (ColorRect overlay + Buttons)
 - **Phase 9.3: DONE** — Scoreboard → PanelContainer with GridContainer, signal-driven VP table
 - **Phase 9.4: DONE** — FateChart → PanelContainer with dynamic rows, fate highlighting, VBox wrapper for right-side panels
-- **Phase 9.5+: TODO** — Remaining HUD panels (combat log, tooltips, summaries)
+- **Phase 9.5: DONE** — CombatLog → PanelContainer with ScrollContainer + RichTextLabel, BBCode colors, Godot-native scroll
+- **Phase 9.6+: TODO** — Remaining HUD panels (tooltips, summaries)
 - **Phases 10-12: TODO** — Controller extraction, TileMapLayer rendering, @tool editor preview
 
 Target: Godot-native architecture with CanvasLayer + Control nodes for HUD, TileMapLayer for hex grid, signals for decoupling, @export for all configuration. Dynamic rendering (trails, tokens, combat sparks) stays as draw_*.

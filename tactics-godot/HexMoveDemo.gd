@@ -299,6 +299,7 @@ var _unit_select_popup: UnitSelectPopup = null
 var _ds_turn_popup: DSTurnPopup = null
 var _scoreboard: Scoreboard = null
 var _fate_chart: FateChart = null
+var _combat_log: CombatLog = null
 var _analytics_vbox: VBoxContainer = null
 var _terrain_sprites: Dictionary = {}  # terrain_key -> Texture2D
 var _cursor_hand: Texture2D = null
@@ -383,6 +384,10 @@ func _ready():
 	_fate_chart = preload("res://scenes/hud/fate_chart.tscn").instantiate()
 	_analytics_vbox.add_child(_fate_chart)
 	_fate_chart.init(_state)
+	# Combat log (left-side panel)
+	_combat_log = preload("res://scenes/hud/combat_log.tscn").instantiate()
+	_hud_layer.add_child(_combat_log)
+	_combat_log.init(_state)
 	# Redraw battle when view mode changes (from TopBar button clicks)
 	_state.view_mode_changed.connect(func(_m): queue_redraw())
 	queue_redraw()
@@ -475,17 +480,6 @@ func _input(event: InputEvent):
 			return
 		if event.keycode == KEY_TAB:
 			_state.show_analytics_ui = not _state.show_analytics_ui
-			queue_redraw()
-			return
-
-	# Log panel scroll (left side, 340px wide)
-	if _state._log_visible and event is InputEventMouseButton and event.pressed and event.position.x < 420:
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_state.log_scroll = maxi(0, _state.log_scroll - 3)
-			queue_redraw()
-			return
-		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_state.log_scroll = mini(maxi(0, _state.log_lines.size() - 10), _state.log_scroll + 3)
 			queue_redraw()
 			return
 
@@ -713,7 +707,6 @@ func _recalc_confirmed_sim():
 		return
 	_state.confirmed_sim = simulate(all_units)
 	_state.log_lines = _state.confirmed_sim.get("combat_log", [])
-	_state.log_scroll = 0
 	# Write to file
 	var f = FileAccess.open("user://combat_log.txt", FileAccess.WRITE)
 	if f:
@@ -1371,7 +1364,6 @@ func _draw():
 	if _state.phase == GameState.Phase.DEPLOY and _state.view_mode == GameState.ViewMode.FINAL:
 		_draw_hud()
 		if _state.show_analytics_ui:
-			if _state._log_visible: _draw_combat_log()
 			if use_preview:
 				_draw_preview_narrative(draw_sim)
 			if _state.hover_trail_uid >= 0 and not _state.selecting_unit and not _state.ds_selecting_turn:
@@ -1411,7 +1403,6 @@ func _draw():
 	# Normal mode: BattleRenderer draws tiles + sim, we draw HUD on top
 	_draw_hud()
 	if _state.show_analytics_ui:
-		_draw_combat_log()
 		if use_preview:
 			_draw_preview_narrative(draw_sim)
 
@@ -1475,6 +1466,34 @@ func _draw_shift_summary():
 	# Clamp scroll
 	var max_scroll = maxi(0, total_lines - max_visible_lines)
 	_state.shift_summary_scroll = clampi(_state.shift_summary_scroll, 0, max_scroll)
+	# Draw fate icons on the map BEFORE the summary box (so box renders on top)
+	if not _state.shift_summary_diff.is_empty() and not _state.confirmed_sim.is_empty():
+		var fate_changes: Array = _state.shift_summary_diff.get("fate_changes", [])
+		var timelines_s: Array = _state.confirmed_sim.get("timelines", [])
+		var units_s: Array = _state.confirmed_sim.get("units", [])
+		# Swell: pulse from 1.0 to 1.0+amplitude and back
+		var swell = 1.0 + _visual.shift_pulse_amplitude * sin(_state.shift_summary_timer * TAU / _visual.shift_pulse_period)
+		var icon_size = HEX_SIZE * _visual.fate_icon_scale * cam_zoom * swell
+		for fc in fate_changes:
+			var uid_fc: int = fc.uid
+			if uid_fc >= units_s.size() or uid_fc >= timelines_s.size(): continue
+			var u_fc = units_s[uid_fc]
+			var trail_fc: Array = timelines_s[uid_fc]
+			var final_pos = Vector2i(-1, -1)
+			if u_fc.eliminated:
+				var et = mini(u_fc.elim_turn, trail_fc.size() - 1)
+				final_pos = trail_fc[et]
+			else:
+				final_pos = trail_fc[trail_fc.size() - 1]
+			if final_pos == Vector2i(-1, -1): continue
+			var center = hex_to_pixel(final_pos.x, final_pos.y)
+			var team_tint = C_P1 if u_fc.player == 1 else C_P2
+			if fc.fate == "now_dies" and _icon_death:
+				var r = Rect2(center - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
+				draw_texture_rect(_icon_death, r, false, team_tint)
+			elif fc.fate == "now_survives" and _icon_survive:
+				var r = Rect2(center - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
+				draw_texture_rect(_icon_survive, r, false, team_tint)
 	# Dark background with border
 	draw_rect(Rect2(box_x - 2, box_y - 2, box_w + 4, box_h + 4), Color(0.8, 0.7, 0.3, 0.9))
 	draw_rect(Rect2(box_x, box_y, box_w, box_h), Color(0.12, 0.12, 0.15, 0.95))
@@ -1507,34 +1526,6 @@ func _draw_shift_summary():
 	# Click prompt
 	draw_string(font, Vector2(box_x + pad, y_cursor + 4), "(click to continue)",
 		HORIZONTAL_ALIGNMENT_LEFT, box_w - pad * 2, 13, Color(0.6, 0.6, 0.6, 0.8))
-	# Draw fate icons on the map with swell animation
-	if not _state.shift_summary_diff.is_empty() and not _state.confirmed_sim.is_empty():
-		var fate_changes: Array = _state.shift_summary_diff.get("fate_changes", [])
-		var timelines_s: Array = _state.confirmed_sim.get("timelines", [])
-		var units_s: Array = _state.confirmed_sim.get("units", [])
-		# Swell: pulse from 1.0 to 1.0+amplitude and back
-		var swell = 1.0 + _visual.shift_pulse_amplitude * sin(_state.shift_summary_timer * TAU / _visual.shift_pulse_period)
-		var icon_size = HEX_SIZE * _visual.fate_icon_scale * cam_zoom * swell
-		for fc in fate_changes:
-			var uid_fc: int = fc.uid
-			if uid_fc >= units_s.size() or uid_fc >= timelines_s.size(): continue
-			var u_fc = units_s[uid_fc]
-			var trail_fc: Array = timelines_s[uid_fc]
-			var final_pos = Vector2i(-1, -1)
-			if u_fc.eliminated:
-				var et = mini(u_fc.elim_turn, trail_fc.size() - 1)
-				final_pos = trail_fc[et]
-			else:
-				final_pos = trail_fc[trail_fc.size() - 1]
-			if final_pos == Vector2i(-1, -1): continue
-			var center = hex_to_pixel(final_pos.x, final_pos.y)
-			var team_tint = C_P1 if u_fc.player == 1 else C_P2
-			if fc.fate == "now_dies" and _icon_death:
-				var r = Rect2(center - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
-				draw_texture_rect(_icon_death, r, false, team_tint)
-			elif fc.fate == "now_survives" and _icon_survive:
-				var r = Rect2(center - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size))
-				draw_texture_rect(_icon_survive, r, false, team_tint)
 
 func _draw_hud():
 	pass  # Now handled by TopBar Control node (CanvasLayer)
@@ -1748,56 +1739,6 @@ func _draw_trail_tooltip(sim: Dictionary):
 		draw_string(font, Vector2(px + pad, ty), entry.text,
 			HORIZONTAL_ALIGNMENT_LEFT, panel_w - pad * 2, fs, entry.color)
 		ty += line_h
-
-func _draw_combat_log():
-	if _state.log_lines.is_empty():
-		return
-	var font = ThemeDB.fallback_font
-	var vp = get_viewport_rect().size
-	var fs = 13
-	var line_h = 18
-	var pad = 8
-	var panel_w = 400
-	var panel_x = 12
-	var panel_y: float = 56.0
-	var panel_h = vp.y - panel_y - 12
-	var visible_lines = int(panel_h / line_h)
-
-	# Background
-	draw_rect(Rect2(panel_x, panel_y, panel_w, panel_h), Color(0, 0, 0, 0.75))
-
-	# Title
-	draw_string(font, Vector2(panel_x + pad, panel_y + 14), "Combat Log (scroll wheel)", HORIZONTAL_ALIGNMENT_LEFT, panel_w, 11, Color(0.7, 0.7, 0.7))
-
-	# Lines
-	var start_y = panel_y + 28
-	var max_lines = mini(visible_lines - 2, _state.log_lines.size() - _state.log_scroll)
-	for i in max_lines:
-		var li = _state.log_scroll + i
-		if li >= _state.log_lines.size(): break
-		var line: String = _state.log_lines[li]
-		var y_pos = start_y + i * line_h
-		if y_pos + line_h > panel_y + panel_h: break
-		# Color based on content
-		var col = Color(0.75, 0.75, 0.75)
-		if line.begins_with("==="):
-			col = Color(0.9, 0.85, 0.4)
-		elif line.begins_with("---"):
-			col = Color(0.5, 0.7, 0.9)
-		elif "ELIMINATED" in line:
-			col = Color(0.9, 0.3, 0.3)
-		elif "Score:" in line:
-			col = Color(0.4, 0.9, 0.5)
-		elif line.find("moves") >= 0:
-			col = Color(0.6, 0.6, 0.6)
-		draw_string(font, Vector2(panel_x + pad, y_pos), line, HORIZONTAL_ALIGNMENT_LEFT, panel_w - pad * 2, fs, col)
-
-	# Scroll indicator
-	if _state.log_lines.size() > visible_lines:
-		var scroll_frac = float(_state.log_scroll) / float(maxi(1, _state.log_lines.size() - visible_lines))
-		var bar_h = panel_h * float(visible_lines) / float(_state.log_lines.size())
-		var bar_y = panel_y + scroll_frac * (panel_h - bar_h)
-		draw_rect(Rect2(panel_x + panel_w - 4, bar_y, 3, bar_h), Color(0.5, 0.5, 0.5, 0.5))
 
 # ============================================================================
 # BATTLE SUMMARY

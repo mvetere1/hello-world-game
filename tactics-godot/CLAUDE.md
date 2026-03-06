@@ -17,7 +17,7 @@ This is a **developer testing tool**, not a game. The final game design is uncer
 
 ## Architecture
 
-### Current State (post Phase 9.4 — FateChart)
+### Current State (post Phase 9.5 — CombatLog)
 ```
 HexMoveDemo (Node2D, z_index=0)        — orchestrator: input, deploy, remaining HUD draw_*
 ├── GameState (Node)                    — centralized mutable state + signals
@@ -27,6 +27,7 @@ HexMoveDemo (Node2D, z_index=0)        — orchestrator: input, deploy, remainin
      ├── TopBar (PanelContainer)           — phase text, view mode buttons, progress bar
      ├── UnitSelectPopup (ColorRect)       — unit type selection modal (dim overlay + buttons)
      ├── DSTurnPopup (ColorRect)           — DS arrival turn selection modal
+     ├── CombatLog (PanelContainer)        — scrollable combat log (RichTextLabel, left side)
      └── AnalyticsPanel (VBoxContainer)    — right-side stacking container
           ├── Scoreboard (PanelContainer)  — VP per turn table (GridContainer)
           └── FateChart (PanelContainer)   — per-unit stats with fate highlighting
@@ -34,25 +35,26 @@ HexMoveDemo (Node2D, z_index=0)        — orchestrator: input, deploy, remainin
 
 | File | Lines | Role |
 |------|-------|------|
-| `HexMoveDemo.gd` | ~1,858 | Orchestrator: input, deploy, remaining HUD draw_* |
-| `scripts/game_state.gd` | 122 | Centralized mutable state (46 vars, 2 enums, 6 signals) |
+| `HexMoveDemo.gd` | ~1,799 | Orchestrator: input, deploy, remaining HUD draw_* |
+| `scripts/game_state.gd` | 121 | Centralized mutable state (45 vars, 2 enums, 6 signals) |
 | `scripts/battle_renderer.gd` | 865 | Child Node2D: tiles, trails, tokens, sim rendering |
 | `scripts/hud/top_bar.gd` | 124 | TopBar: phase text, view modes, progress bar, replay/summary buttons |
 | `scripts/hud/unit_select_popup.gd` | 60 | UnitSelectPopup: unit type selection modal |
 | `scripts/hud/ds_turn_popup.gd` | 55 | DSTurnPopup: DS arrival turn selection modal |
 | `scripts/hud/scoreboard.gd` | 98 | Scoreboard: VP per turn table with preview delta |
 | `scripts/hud/fate_chart.gd` | 231 | FateChart: per-unit stats table with fate change highlighting |
+| `scripts/hud/combat_log.gd` | 71 | CombatLog: scrollable combat log with color-coded lines |
 | `scripts/hex_math.gd` | 94 | Pure hex math (static class) |
 | `scripts/combat_simulator.gd` | 948 | Simulation, AI, pathfinding, combat |
 | `scripts/resources/*.gd` | 5 files | UnitStats, GridConfig, BattleConfig, TerrainType, VisualConfig |
 | `resources/**/*.tres` | 13 files | 5 units + 3 config + 3 terrain + 1 theme |
-| `scenes/hud/*.tscn` | 5 files | TopBar, UnitSelectPopup, DSTurnPopup, Scoreboard, FateChart scenes |
+| `scenes/hud/*.tscn` | 6 files | TopBar, UnitSelectPopup, DSTurnPopup, Scoreboard, FateChart, CombatLog scenes |
 | `HeadlessSim.gd` | 304 | CLI simulation runner (uses CombatSimulator directly) |
 
 ### Target Architecture
 See `REFACTOR-NOTES.md` for the full target scene tree. Key changes:
 - **GameState node** — DONE. Centralized mutable state (46 vars, 2 enums, 6 signals). BattleRenderer reads state via `_state.xxx`, config/methods via `_parent.xxx`.
-- **HUD via CanvasLayer + Control nodes** — IN PROGRESS. TopBar (9.1), popups (9.2), scoreboard (9.3) done. Remaining: fate chart, combat log, tooltips, summaries.
+- **HUD via CanvasLayer + Control nodes** — IN PROGRESS. TopBar (9.1), popups (9.2), scoreboard (9.3), fate chart (9.4), combat log (9.5) done. Remaining: tooltips, summaries.
 - **VisualConfig resource** — DONE. 102 @export vars in `resources/config/visual_config.tres` (91 original + 11 HUD). HexMoveDemo, BattleRenderer, and TopBar preload independently.
 - **TileMapLayer for rendering** — GPU-batched tiles replace 2,240 draw calls/frame
 - **Controller nodes** — deploy and replay logic extracted from HexMoveDemo
@@ -65,7 +67,9 @@ See `REFACTOR-NOTES.md` for the full target scene tree. Key changes:
 - Phase 9.1: DONE (TopBar → Control node, CanvasLayer + Theme infrastructure)
 - Phase 9.2: DONE (UnitSelectPopup + DSTurnPopup → Control nodes with ColorRect overlay)
 - Phase 9.3: DONE (Scoreboard → PanelContainer with GridContainer, signal-driven updates)
-- Phase 9.4+: TODO (remaining HUD panels: fate chart, combat log, tooltips, summaries)
+- Phase 9.4: DONE (FateChart → PanelContainer with VBoxContainer, fate change highlighting)
+- Phase 9.5: DONE (CombatLog → PanelContainer with ScrollContainer + RichTextLabel, BBCode colors)
+- Phase 9.6+: TODO (remaining HUD panels: tooltips, summaries)
 - Phases 10-12: TODO (Controllers, TileMap, @tool)
 
 ## Game Design Summary

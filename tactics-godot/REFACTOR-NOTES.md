@@ -50,29 +50,30 @@ Use Godot's built-in tools instead of reinventing them:
 
 ---
 
-## Current State (post Phase 8)
+## Current State (post Phase 9.5)
 
 | File | Lines | Role |
 |------|-------|------|
-| `HexMoveDemo.gd` | ~1,858 | Orchestrator: input, deploy, remaining HUD draw_* |
-| `scripts/game_state.gd` | 122 | Centralized mutable state (46 vars, 2 enums, 6 signals) |
+| `HexMoveDemo.gd` | ~1,799 | Orchestrator: input, deploy, remaining HUD draw_* |
+| `scripts/game_state.gd` | 121 | Centralized mutable state (45 vars, 2 enums, 6 signals) |
 | `scripts/battle_renderer.gd` | 865 | Child Node2D: tiles, trails, tokens, sim rendering |
 | `scripts/hud/top_bar.gd` | 124 | TopBar: phase text, view modes, progress bar, replay/summary |
 | `scripts/hud/unit_select_popup.gd` | 60 | UnitSelectPopup: unit type selection modal |
 | `scripts/hud/ds_turn_popup.gd` | 55 | DSTurnPopup: DS arrival turn selection modal |
 | `scripts/hud/scoreboard.gd` | 98 | Scoreboard: VP per turn table with preview delta |
 | `scripts/hud/fate_chart.gd` | 231 | FateChart: per-unit stats with fate change highlighting |
+| `scripts/hud/combat_log.gd` | 71 | CombatLog: scrollable combat log with color-coded lines |
 | `scripts/hex_math.gd` | 94 | Pure hex math (static class) |
 | `scripts/combat_simulator.gd` | 948 | Simulation, AI, pathfinding, combat |
 | `scripts/resources/*.gd` | 5 files | UnitStats, GridConfig, BattleConfig, TerrainType, VisualConfig |
 | `resources/**/*.tres` | 13 files | 5 units + 3 config + 3 terrain + 1 theme |
-| `scenes/hud/*.tscn` | 5 files | TopBar, UnitSelectPopup, DSTurnPopup, Scoreboard, FateChart scenes |
+| `scenes/hud/*.tscn` | 6 files | TopBar, UnitSelectPopup, DSTurnPopup, Scoreboard, FateChart, CombatLog scenes |
 | `HeadlessSim.gd` | 304 | CLI simulation runner (uses CombatSimulator directly) |
 
 **Solved:** Unit stats editable in Inspector, config values in `.tres` files, simulation engine decoupled, battle rendering extracted, all visual params (colors, alphas, widths, animation speeds) in VisualConfig resource, mutable state centralized in GameState with signals defined.
 
 **Anti-patterns remaining:**
-1. Most HUD still drawn via draw_* calls — TopBar, popups, scoreboard, fate chart migrated; 6 panels remain
+1. Most HUD still drawn via draw_* calls — TopBar, popups, scoreboard, fate chart, combat log migrated; 5 panels remain
 2. Tiles drawn per-frame in code (2,240 draw calls) — TileMapLayer exists but unused visually
 3. Most signals not yet wired — TopBar connects to 4 signals; other nodes still call methods directly
 
@@ -373,7 +374,20 @@ Extracted 862 lines of battle drawing code into `scripts/battle_renderer.gd` as 
 - HexMoveDemo.gd: ~1,943 → ~1,858 lines (net -85)
 - **Pure UI extraction — no logic changes, all tests pass.**
 
-##### Phase 9.5+: Remaining Panels — TODO
+##### Phase 9.5: CombatLog — DONE
+- Created `scripts/hud/combat_log.gd` (71 lines, `class_name CombatLog extends PanelContainer`)
+- Created `scenes/hud/combat_log.tscn` — PanelContainer anchored left side, full height
+- ScrollContainer + RichTextLabel with BBCode color tags (Godot-native scroll)
+- Color-coded lines: gold (turn headers), blue (subsections), red (ELIMINATED), green (Score), dim gray (moves)
+- Connects to `sim_changed` signal, reads `_state.log_lines`
+- Visibility: `show_analytics_ui` (TAB) + `_log_visible` (L key) + not `replay_mode`
+- Removed `_draw_combat_log()` function (50 lines) and 2 call sites from HexMoveDemo.gd
+- Removed manual scroll input handling (10 lines) — Godot ScrollContainer handles scroll natively
+- Removed `log_scroll` state var from GameState (no longer needed)
+- HexMoveDemo.gd: ~1,858 → ~1,799 lines (net -59)
+- **Pure UI extraction — no logic changes, all tests pass.**
+
+##### Phase 9.6+: Remaining Panels — TODO
 Build each panel as a Godot Control node tree, connect to GameState signals, remove corresponding draw_* code.
 
 Panels in priority order:
@@ -381,7 +395,7 @@ Panels in priority order:
 2. ~~UnitSelectPopup + DSTurnPopup~~ — **DONE** (Phase 9.2)
 3. ~~Scoreboard~~ — **DONE** (Phase 9.3)
 4. ~~FateChart~~ — **DONE** (Phase 9.4)
-5. CombatLog — ScrollContainer + RichTextLabel
+5. ~~CombatLog~~ — **DONE** (Phase 9.5)
 6. TrailTooltip — small, cursor-following
 7. NarrativePanel — text list
 8. ShiftSummaryPopup — modal with scroll

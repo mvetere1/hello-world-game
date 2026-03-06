@@ -2,7 +2,7 @@
 
 This is a Godot 4.6 **developer testing toolkit** for a hex tactics game. It's not the final game — it's a tool for the team to rapidly test game feel, balance, and visual presentation. The final game design is uncertain; this tool lets us explore variations without committing.
 
-**Architecture is in active migration** toward Godot-native patterns. See `REFACTOR-NOTES.md` for the full plan (Phases 0-5, 7, 8, 9.1-9.3 done; Phases 9.4-12 planned).
+**Architecture is in active migration** toward Godot-native patterns. See `REFACTOR-NOTES.md` for the full plan (Phases 0-5, 7, 8, 9.1-9.5 done; Phases 9.6-12 planned).
 
 ---
 
@@ -46,19 +46,20 @@ This is a Godot 4.6 **developer testing toolkit** for a hex tactics game. It's n
 
 | File | Lines | Role |
 |------|-------|------|
-| `HexMoveDemo.gd` | ~1,858 | Orchestrator: input, deploy, remaining HUD draw_* |
-| `scripts/game_state.gd` | 122 | Centralized mutable state (46 vars, 2 enums, 6 signals) |
+| `HexMoveDemo.gd` | ~1,799 | Orchestrator: input, deploy, remaining HUD draw_* |
+| `scripts/game_state.gd` | 121 | Centralized mutable state (45 vars, 2 enums, 6 signals) |
 | `scripts/battle_renderer.gd` | 865 | Child Node2D: tiles, trails, tokens, sim rendering |
 | `scripts/hud/top_bar.gd` | 124 | TopBar Control node: phase text, view modes, progress bar |
 | `scripts/hud/unit_select_popup.gd` | 60 | UnitSelectPopup: unit type selection modal |
 | `scripts/hud/ds_turn_popup.gd` | 55 | DSTurnPopup: DS arrival turn selection modal |
 | `scripts/hud/scoreboard.gd` | 98 | Scoreboard: VP per turn table with preview delta |
 | `scripts/hud/fate_chart.gd` | 231 | FateChart: per-unit stats table with fate change highlighting |
+| `scripts/hud/combat_log.gd` | 71 | CombatLog: scrollable combat log with color-coded lines |
 | `scripts/combat_simulator.gd` | 948 | Simulation engine, AI, pathfinding, combat rolls |
 | `scripts/hex_math.gd` | 94 | Pure hex math (static class — `HexMath.hex_to_pixel()`, etc.) |
 | `scripts/resources/*.gd` | 5 files | Resource class definitions (UnitStats, GridConfig, BattleConfig, TerrainType, VisualConfig) |
 | `resources/**/*.tres` | 13 files | 5 unit configs + 3 game configs + 3 terrain types + 1 theme + 1 visual config |
-| `scenes/hud/*.tscn` | 5 files | TopBar, UnitSelectPopup, DSTurnPopup, Scoreboard, FateChart scene files |
+| `scenes/hud/*.tscn` | 6 files | TopBar, UnitSelectPopup, DSTurnPopup, Scoreboard, FateChart, CombatLog scene files |
 | `HeadlessSim.gd` | 304 | CLI simulation runner (uses CombatSimulator directly) |
 
 ---
@@ -81,6 +82,7 @@ HexMoveDemo (Node2D)               ← has HexMoveDemo.gd attached
      ├── TopBar (PanelContainer)   ← phase text, view mode buttons, progress bar
      ├── UnitSelectPopup (ColorRect) ← unit type selection modal (dim overlay + buttons)
      ├── DSTurnPopup (ColorRect)   ← DS arrival turn selection modal
+     ├── CombatLog (PanelContainer) ← scrollable combat log (RichTextLabel, left side)
      └── AnalyticsPanel (VBoxContainer) ← right-side stacking container
           ├── Scoreboard (PanelContainer) ← VP per turn table
           └── FateChart (PanelContainer)  ← per-unit stats with fate highlighting
@@ -274,7 +276,8 @@ Run simulations without the GUI:
 - **Phase 9.2: Deploy popups → Control nodes** — DONE. UnitSelectPopup + DSTurnPopup as ColorRect overlays with Buttons
 - **Phase 9.3: Scoreboard → Control node** — DONE. PanelContainer + GridContainer, signal-driven updates
 - **Phase 9.4: FateChart → Control node** — DONE. Per-unit stats table with fate highlighting, VBox wrapper for Scoreboard+FateChart stacking
-- **Phase 9.5+: Remaining HUD panels** — TODO. Combat log, tooltips, summaries
+- **Phase 9.5: CombatLog → Control node** — DONE. ScrollContainer + RichTextLabel, BBCode color-coded lines, Godot-native scroll
+- **Phase 9.6+: Remaining HUD panels** — TODO. Tooltips, summaries
 - **Phase 11: TileMapLayer rendering** — GPU-batched tiles
 
 See `REFACTOR-NOTES.md` for full details.
